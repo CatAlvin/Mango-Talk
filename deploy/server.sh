@@ -171,7 +171,12 @@ wait_for_health
 systemctl reload nginx
 curl -fsS --max-time 10 https://mango-talk.chenglan.tech/health/db >/dev/null
 curl -fsS --max-time 10 https://mango-talk.chenglan.tech/release.json | python3 -c 'import json,sys; assert json.load(sys.stdin)["commit"] == sys.argv[1]' "$REVISION"
-curl -fsS --max-time 10 https://mango-talk.chenglan.tech/demo >/dev/null
+for route in / /login /register /chat /demo /demo/; do
+    curl -fsS --max-time 10 "https://mango-talk.chenglan.tech$route" | cmp - "$RELEASE/frontend/dist/index.html"
+done
+for asset in /demo/coast.svg /demo/workshop-notes.txt; do
+    curl -fsS --max-time 10 "https://mango-talk.chenglan.tech$asset" | cmp - "$RELEASE/frontend/dist$asset"
+done
 
 git -C "$PROJECT" merge --ff-only "$REVISION"
 CHECKOUT_UPDATED=1
