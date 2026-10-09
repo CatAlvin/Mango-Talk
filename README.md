@@ -70,7 +70,7 @@ npm ci
 npm run dev
 ```
 
-Open **http://127.0.0.1:5173/demo**. To use registered accounts, start the backend in another terminal. SQLite provides a self-contained local setup; MySQL 8 is used for deployment.
+Open **[http://127.0.0.1:5173/demo](http://127.0.0.1:5173/demo)**. To use registered accounts, start the backend in another terminal. SQLite provides a self-contained local setup; MySQL 8 is used for deployment.
 
 ```bash
 cd Mango-Talk/backend

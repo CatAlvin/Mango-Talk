@@ -70,7 +70,7 @@ npm ci
 npm run dev
 ```
 
-打开 **http://127.0.0.1:5173/demo**。如需注册并使用真实账号，在另一个终端启动后端。下面使用 SQLite；线上服务使用 MySQL 8。
+打开 **[http://127.0.0.1:5173/demo](http://127.0.0.1:5173/demo)**。如需注册并使用真实账号，在另一个终端启动后端。下面使用 SQLite；线上服务使用 MySQL 8。
 
 ```bash
 cd Mango-Talk/backend
