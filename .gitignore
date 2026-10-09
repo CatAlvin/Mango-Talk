@@ -29,6 +29,8 @@ backend/.pytest_cache/
 backend/__pycache__/
 backend/*.log
 backend/tests/.runtime-*/
+backend/*.db
+backend/*.sqlite*
 
 # ----------------------
 # Node / Frontend
@@ -66,6 +68,7 @@ backups/*
 # ----------------------
 docs/*.docx
 .deploy/
+docs/internal/
 codesort/code/
 docs/audit/**/uploads/
 docs/audit/**/*.sqlite

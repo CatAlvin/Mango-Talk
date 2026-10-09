@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Restore an application checkpoint. Schema changes and new messages are retained.
 set -Eeuo pipefail
-PROJECT=/home/projects/mango-talk
-BACKUP=$(realpath "${1:?Usage: rollback.sh /home/projects/mango-talk/.deploy/backups/CHECKPOINT}")
+BACKUP=$(realpath "${1:?Usage: rollback.sh PROJECT/.deploy/backups/CHECKPOINT}")
+PROJECT=$(dirname "$(dirname "$(dirname "$BACKUP")")")
 [[ $EUID == 0 && $BACKUP == "$PROJECT/.deploy/backups/"* && -d $BACKUP ]] || exit 1
+[[ $PROJECT =~ ^/[a-zA-Z0-9._/-]+/mango-talk$ && $PROJECT != *..* ]] || exit 1
 for file in previous.commit release.commit previous.service previous.nginx previous.active; do
     [[ -f $BACKUP/$file ]] || { echo "Incomplete checkpoint: $file" >&2; exit 1; }
 done
@@ -25,5 +26,5 @@ systemctl daemon-reload
 nginx -t
 systemctl reload nginx
 [[ $(cat "$BACKUP/previous.active") == 0 ]] || systemctl start mango-talk-api.service
-curl -fsS --retry 5 --retry-connrefused --retry-delay 1 --max-time 5 https://mango-talk.chenglan.tech/health/db >/dev/null
+curl -fsS --retry 5 --retry-connrefused --retry-delay 1 --max-time 5 http://127.0.0.1:8000/health/db >/dev/null
 echo "Application rollback completed. Database contents and additive migrations were retained. Checkpoint: $BACKUP"

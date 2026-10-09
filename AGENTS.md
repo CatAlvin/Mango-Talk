@@ -10,5 +10,7 @@ Mango Talk 是对外展示和实际使用的作品。每次修改都按正式产
 - 后端执行 `python -m pytest -q`，前端执行 `npm test` 与 `npm run build`。不要使用生产数据库做自动化测试。
 - 发布使用 `scripts/deploy.ps1`。每个交付版本提交并推送 Git，再同步服务器，核对 HTTPS 健康和 `/release.json` 提交；失败时按部署文档恢复。
 - 密钥、用户附件与数据库备份不进入 Git。发布只修改 Mango Talk 的站点与服务。
+- 公开文档使用中英双语 README、演示截图与简短流程图；结果写明验证口径，以具体功能和实现表述贡献，不添加口号、面试技巧或私人材料。
+- SSH 目标与服务器目录放在忽略的 `.deploy/local-config.json`，发布前执行 `python scripts/check_public_content.py`。展示截图只使用虚构演示数据。
 
 前端运行环境：Node 22.22.2 或 Node 24.15+。后端：Python 3.10+。

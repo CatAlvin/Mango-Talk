@@ -1,9 +1,23 @@
 param(
-    [string]$SshHost = 'ChengLanServer'
+    [string]$SshHost,
+    [string]$RemoteProject,
+    [string]$PublicUrl
 )
 
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+$LocalConfigPath = Join-Path $ProjectRoot '.deploy\local-config.json'
+if (Test-Path -LiteralPath $LocalConfigPath) {
+    $LocalConfig = Get-Content -LiteralPath $LocalConfigPath -Raw | ConvertFrom-Json
+    if (-not $SshHost) { $SshHost = $LocalConfig.sshHost }
+    if (-not $RemoteProject) { $RemoteProject = $LocalConfig.remoteProject }
+    if (-not $PublicUrl) { $PublicUrl = $LocalConfig.publicUrl }
+}
+if (-not $PublicUrl) { throw 'Provide the public HTTPS origin, without a path.' }
+$PublicUrl = $PublicUrl.TrimEnd('/')
+if ($SshHost -notmatch '^[A-Za-z0-9][A-Za-z0-9@._-]*$') { throw 'Provide a valid SSH host or alias.' }
+if ($RemoteProject -notmatch '^/[A-Za-z0-9._/-]+/mango-talk$' -or $RemoteProject.Contains('..')) { throw 'Provide an absolute project path ending in /mango-talk.' }
+if ($PublicUrl -notmatch '^https://[A-Za-z0-9][A-Za-z0-9.-]*$') { throw 'Provide the public HTTPS origin, without a path.' }
 
 function Invoke-CheckedNative {
     param([string]$Program, [string[]]$Arguments)
@@ -53,7 +67,7 @@ try {
     $RemoteDirectory = '/tmp/mango-talk-' + [guid]::NewGuid().ToString('N')
     Invoke-CheckedNative 'ssh' @('-o', 'BatchMode=yes', $SshHost, "mkdir -m 700 '$RemoteDirectory'")
     Invoke-CheckedNative 'scp' @('-o', 'BatchMode=yes', $FrontendArchive, $DeploymentArchive, "${SshHost}:$RemoteDirectory/")
-    Invoke-CheckedNative 'ssh' @('-o', 'BatchMode=yes', $SshHost, "tar -xf '$RemoteDirectory/deploy.tar' -C '$RemoteDirectory' && bash '$RemoteDirectory/deploy/server.sh' '$Revision' '$RemoteDirectory/frontend.tar.gz'")
+    Invoke-CheckedNative 'ssh' @('-o', 'BatchMode=yes', $SshHost, "tar -xf '$RemoteDirectory/deploy.tar' -C '$RemoteDirectory' && bash '$RemoteDirectory/deploy/server.sh' '$Revision' '$RemoteDirectory/frontend.tar.gz' '$RemoteProject' '$PublicUrl'")
 }
 finally {
     Pop-Location

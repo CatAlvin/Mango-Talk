@@ -6,7 +6,7 @@ limit_req_zone $binary_remote_addr zone=mango_talk_auth:10m rate=10r/m;
 server {
     listen 80;
     listen [::]:80;
-    server_name mango-talk.chenglan.tech;
+    server_name @DOMAIN@;
     access_log /var/log/nginx/mango-talk.access.log mango_talk;
     error_log /var/log/nginx/mango-talk.error.log warn;
     return 301 https://$host$request_uri;
@@ -15,7 +15,7 @@ server {
 server {
     listen 443 ssl;
     listen [::]:443 ssl;
-    server_name mango-talk.chenglan.tech;
+    server_name @DOMAIN@;
     access_log /var/log/nginx/mango-talk.access.log mango_talk;
     error_log /var/log/nginx/mango-talk.error.log warn;
     ssl_certificate @CERTIFICATE@;
@@ -30,7 +30,7 @@ server {
     add_header Referrer-Policy strict-origin-when-cross-origin always;
     add_header X-Frame-Options SAMEORIGIN always;
     add_header Strict-Transport-Security "max-age=31536000" always;
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' wss://mango-talk.chenglan.tech; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' wss://@DOMAIN@; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'" always;
 
     location ~ ^/auth/(login|register)/?$ {
         limit_req zone=mango_talk_auth burst=10 nodelay;
@@ -83,7 +83,7 @@ server {
         add_header Referrer-Policy strict-origin-when-cross-origin always;
         add_header X-Frame-Options SAMEORIGIN always;
         add_header Strict-Transport-Security "max-age=31536000" always;
-        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' wss://mango-talk.chenglan.tech; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' wss://@DOMAIN@; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'" always;
     }
 
     location = /release.json {
@@ -92,7 +92,7 @@ server {
         add_header Referrer-Policy strict-origin-when-cross-origin always;
         add_header X-Frame-Options SAMEORIGIN always;
         add_header Strict-Transport-Security "max-age=31536000" always;
-        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' wss://mango-talk.chenglan.tech; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' wss://@DOMAIN@; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'" always;
     }
 
     location /assets/ {
@@ -102,7 +102,7 @@ server {
         add_header Referrer-Policy strict-origin-when-cross-origin always;
         add_header X-Frame-Options SAMEORIGIN always;
         add_header Strict-Transport-Security "max-age=31536000" always;
-        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' wss://mango-talk.chenglan.tech; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' wss://@DOMAIN@; object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'" always;
     }
 
     location ~ /\. {

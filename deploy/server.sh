@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Run as root on ChengLanServer. The Windows launcher uploads a commit-bound build.
+# Run as root on the deployment host. The launcher uploads a commit-bound build.
 set -Eeuo pipefail
 umask 022
 
-PROJECT=/home/projects/mango-talk
+PROJECT=${3:?Usage: server.sh COMMIT FRONTEND_TAR_GZ PROJECT HTTPS_ORIGIN}
+PUBLIC_ORIGIN=${4:?An HTTPS origin is required}
 SITE=/etc/nginx/sites-available/mango-talk
 UNIT=/etc/systemd/system/mango-talk-api.service
 SERVICE=mango-talk-api.service
@@ -13,13 +14,15 @@ ARTIFACT=${2:?Usage: server.sh COMMIT FRONTEND_TAR_GZ}
 
 [[ $EUID == 0 ]] || { echo 'Run this script as root.' >&2; exit 1; }
 [[ $REVISION =~ ^[0-9a-f]{40}$ ]] || { echo 'A complete Git commit hash is required.' >&2; exit 1; }
-[[ $(realpath "$PROJECT") == /home/projects/mango-talk ]] || exit 1
+[[ $PROJECT =~ ^/[a-zA-Z0-9._/-]+/mango-talk$ && $PROJECT != *..* ]] || exit 1
+[[ $(realpath "$PROJECT") == "$PROJECT" ]] || exit 1
+[[ $PUBLIC_ORIGIN =~ ^https://[a-zA-Z0-9][a-zA-Z0-9.-]*$ ]] || exit 1
 [[ -f $SITE && -f $UNIT && -f $PROJECT/backend/.env && -f $ARTIFACT ]] || exit 1
 for tool in git python3 curl nginx systemctl mysqldump mysql flock runuser; do
     command -v "$tool" >/dev/null || { echo "Missing deployment dependency: $tool" >&2; exit 1; }
 done
 export APP_ENV=production
-export CORS_ORIGINS=https://mango-talk.chenglan.tech
+export CORS_ORIGINS="$PUBLIC_ORIGIN"
 export UPLOAD_ROOT="$PROJECT/uploads"
 mkdir -p "$PROJECT/.deploy"
 exec 9>"$PROJECT/.deploy/deployment.lock"
@@ -60,7 +63,7 @@ PY
 ln -s "$PROJECT/backend/.env" "$RELEASE/backend/.env"
 python3 -m venv "$RELEASE/backend/.venv"
 PYTHON="$RELEASE/backend/.venv/bin/python"
-"$PYTHON" -m pip install --disable-pip-version-check -r "$RELEASE/backend/requirements.txt" -r "$RELEASE/backend/requirements-dev.txt"
+"$PYTHON" -m pip install --index-url https://pypi.org/simple --disable-pip-version-check -r "$RELEASE/backend/requirements.txt" -r "$RELEASE/backend/requirements-dev.txt"
 (
     cd "$RELEASE/backend"
     "$PYTHON" -m pytest -q
@@ -74,14 +77,15 @@ PYTHON="$RELEASE/backend/.venv/bin/python"
 
 # Preserve the active certificate configuration; this certificate also serves
 # another site and is intentionally neither recreated nor reconfigured here.
-python3 - "$TOOLS" "$PROJECT" "$SITE" "$BACKUP" <<'PY'
+python3 - "$TOOLS" "$PROJECT" "$SITE" "$BACKUP" "$PUBLIC_ORIGIN" <<'PY'
 from pathlib import Path
 import re
 import sys
 
-tools, project, site, backup = map(Path, sys.argv[1:])
+tools, project, site, backup = map(Path, sys.argv[1:5])
+origin = sys.argv[5]
 current = site.read_text()
-values = {"@PROJECT@": str(project)}
+values = {"@PROJECT@": str(project), "@PUBLIC_ORIGIN@": origin, "@DOMAIN@": origin.removeprefix("https://")}
 for key, directive in (("@CERTIFICATE@", "ssl_certificate"), ("@CERTIFICATE_KEY@", "ssl_certificate_key")):
     match = re.search(r"^\s*" + directive + r"\s+([^;]+);", current, flags=re.M)
     if not match or not Path(match[1].strip()).is_file():
@@ -169,13 +173,13 @@ wait_for_health() {
 }
 wait_for_health
 systemctl reload nginx
-curl -fsS --max-time 10 https://mango-talk.chenglan.tech/health/db >/dev/null
-curl -fsS --max-time 10 https://mango-talk.chenglan.tech/release.json | python3 -c 'import json,sys; assert json.load(sys.stdin)["commit"] == sys.argv[1]' "$REVISION"
+curl -fsS --max-time 10 "$PUBLIC_ORIGIN/health/db" >/dev/null
+curl -fsS --max-time 10 "$PUBLIC_ORIGIN/release.json" | python3 -c 'import json,sys; assert json.load(sys.stdin)["commit"] == sys.argv[1]' "$REVISION"
 for route in / /login /register /chat /demo /demo/; do
-    curl -fsS --max-time 10 "https://mango-talk.chenglan.tech$route" | cmp - "$RELEASE/frontend/dist/index.html"
+    curl -fsS --max-time 10 "$PUBLIC_ORIGIN$route" | cmp - "$RELEASE/frontend/dist/index.html"
 done
 for asset in /demo/coast.svg /demo/workshop-notes.txt; do
-    curl -fsS --max-time 10 "https://mango-talk.chenglan.tech$asset" | cmp - "$RELEASE/frontend/dist$asset"
+    curl -fsS --max-time 10 "$PUBLIC_ORIGIN$asset" | cmp - "$RELEASE/frontend/dist$asset"
 done
 
 git -C "$PROJECT" merge --ff-only "$REVISION"
@@ -183,6 +187,6 @@ CHECKOUT_UPDATED=1
 systemctl enable "$SERVICE"
 printf '%s\n' "$BACKUP" >"$PROJECT/.deploy/latest-backup"
 trap - ERR
-echo "Deployed $REVISION to https://mango-talk.chenglan.tech"
+echo "Deployed $REVISION to $PUBLIC_ORIGIN"
 echo "Release: $RELEASE"
 echo "Rollback checkpoint: $BACKUP"

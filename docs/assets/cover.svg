@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="350" viewBox="0 0 960 350" role="img" aria-label="Mango Talk: 48 backend tests, 26 frontend tests, 4 snapshot tests">
+  <rect width="960" height="350" rx="20" fill="#111827"/>
+  <path d="M730 0h230v185" fill="none" stroke="#fb923c" stroke-opacity=".12" stroke-width="76"/>
+  <g font-family="Segoe UI,Arial,sans-serif">
+    <text x="48" y="53" fill="#fdba74" font-size="13" letter-spacing="2">WEB APPLICATION / VUE + FASTAPI</text>
+    <text x="48" y="118" fill="#ffffff" font-size="46" font-weight="700">Mango Talk</text>
+    <text x="48" y="161" fill="#e5e7eb" font-size="22">Real-time messaging, with an account-free demo.</text>
+    <text x="48" y="193" fill="#a5b4c8" font-size="16">Private chats · Groups · Files · Replies · Reconnect sync</text>
+    <rect x="48" y="225" width="270" height="91" rx="12" fill="#ffffff" fill-opacity=".055"/>
+    <text x="68" y="263" fill="#fdba74" font-size="30" font-weight="700">48</text>
+    <text x="68" y="293" fill="#d1d5db" font-size="14">Backend regression tests</text>
+    <rect x="342" y="225" width="270" height="91" rx="12" fill="#ffffff" fill-opacity=".055"/>
+    <text x="362" y="263" fill="#67e8f9" font-size="30" font-weight="700">26</text>
+    <text x="362" y="293" fill="#d1d5db" font-size="14">Frontend regression tests</text>
+    <rect x="636" y="225" width="276" height="91" rx="12" fill="#ffffff" fill-opacity=".055"/>
+    <text x="656" y="263" fill="#fdba74" font-size="30" font-weight="700">4</text>
+    <text x="656" y="293" fill="#d1d5db" font-size="14">Database snapshot tests</text>
+  </g>
+</svg>
