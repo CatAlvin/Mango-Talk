@@ -6,6 +6,7 @@
       :disabled="creating"
       @click="handleToggle"
       title="新建群聊"
+      aria-label="新建群聊"
       :class="{ active: open }"
     >
       <svg
@@ -20,8 +21,10 @@
       </svg>
     </button>
 
+    <Teleport to="body">
+    <div v-if="open" class="creator-backdrop" @click="handleClose"></div>
     <Transition name="panel">
-      <div v-if="open" class="create-panel">
+      <div v-if="open" ref="panelRef" class="create-panel" role="dialog" aria-modal="true" aria-labelledby="group-dialog-title">
         <div class="panel-glow"></div>
 
         <div class="panel-header">
@@ -32,12 +35,11 @@
                   <path d="M7 9a3 3 0 100-6 3 3 0 000 6zM13 10a2.5 2.5 0 100-5 2.5 2.5 0 000 5zM7 11c-3.314 0-6 2.239-6 5a1 1 0 001 1h8.2a1 1 0 00.98-1.2C10.8 13.07 9.1 11 7 11zM13 11c-1.095 0-2.087.302-2.871.82A6.93 6.93 0 0112 16h6a1 1 0 001-1c0-2.21-2.239-4-5-4z"/>
                 </svg>
               </div>
-              <p class="panel-title">新建群聊</p>
+              <p id="group-dialog-title" class="panel-title">新建群聊</p>
             </div>
-            <p class="panel-subtitle">填写群聊信息并选择成员，然后创建新群聊</p>
           </div>
 
-          <button class="panel-close" type="button" @click="handleClose">
+          <button class="panel-close" type="button" aria-label="关闭新建群聊" @click="handleClose">
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
               <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
             </svg>
@@ -46,24 +48,26 @@
 
         <div class="form-grid">
           <div class="form-block">
-            <label class="field-label">群聊名称</label>
+            <label for="group-name" class="field-label">群聊名称</label>
             <input
+              id="group-name"
               v-model.trim="groupName"
               class="text-input"
               type="text"
               maxlength="100"
-              placeholder="例如：Mango Talk 测试群"
+              placeholder="例如：周末读书会"
             />
           </div>
 
           <div class="form-block">
-            <label class="field-label">群聊简介（可选）</label>
+            <label for="group-description" class="field-label">群聊简介（可选）</label>
             <textarea
+              id="group-description"
               v-model.trim="description"
               class="textarea-input"
               rows="2"
               maxlength="255"
-              placeholder="例如：用于前端联调和群聊功能验证"
+              placeholder="说说这个群聊的主题"
             ></textarea>
           </div>
         </div>
@@ -81,6 +85,7 @@
               class="selected-chip"
               type="button"
               @click="removeSelectedUser(user.id)"
+              :aria-label="`移除 ${user.username}`"
             >
               <span class="chip-avatar">{{ getUserInitial(user.username) }}</span>
               <span class="chip-name">{{ user.username }}</span>
@@ -89,7 +94,7 @@
           </div>
 
           <div v-else class="selected-empty">
-            请至少选择 1 位群成员
+            尚未选择成员
           </div>
         </div>
 
@@ -103,6 +108,7 @@
               v-model.trim="keyword"
               class="search-input"
               type="text"
+              aria-label="搜索群成员"
               placeholder="搜索用户名或手机号"
               @keydown.enter.prevent="handleSearch"
             />
@@ -119,7 +125,7 @@
           </button>
         </div>
 
-        <div v-if="errorMessage" class="panel-message panel-error">
+        <div v-if="errorMessage" class="panel-message panel-error" role="alert">
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
             <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
           </svg>
@@ -174,7 +180,7 @@
 
         <div class="panel-footer">
           <p class="footer-tip">
-            群名称必填，且至少选择 1 位成员
+            你将成为群主
           </p>
 
           <button
@@ -189,16 +195,19 @@
         </div>
       </div>
     </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
-import http from '../lib/http'
+import http from '../lib/api'
+import { useDialog } from '../composables/useDialog'
 
 const emit = defineEmits(['room-created'])
 
 const open = ref(false)
+const { panelRef } = useDialog(open, handleClose)
 const groupName = ref('')
 const description = ref('')
 const keyword = ref('')
@@ -208,6 +217,7 @@ const searching = ref(false)
 const searched = ref(false)
 const creating = ref(false)
 const errorMessage = ref('')
+let searchGeneration = 0
 
 const canCreateGroup = computed(() => {
   return (
@@ -251,6 +261,7 @@ function removeSelectedUser(userId) {
 }
 
 function resetPanelState() {
+  searchGeneration++
   groupName.value = ''
   description.value = ''
   keyword.value = ''
@@ -271,11 +282,15 @@ function handleToggle() {
 }
 
 function handleClose() {
+  if (creating.value) return
   open.value = false
   resetPanelState()
 }
 
 async function handleSearch() {
+  if (searching.value || creating.value) return
+  if (!keyword.value.trim()) { errorMessage.value = '请输入用户名或手机号'; return }
+  const generation = ++searchGeneration
   errorMessage.value = ''
   searching.value = true
   searched.value = false
@@ -288,18 +303,21 @@ async function handleSearch() {
       },
     })
 
+    if (generation !== searchGeneration || !open.value) return
     results.value = Array.isArray(response.data) ? response.data : []
     searched.value = true
   } catch (error) {
+    if (generation !== searchGeneration || !open.value) return
     console.error('搜索群成员失败:', error)
     errorMessage.value =
       error?.response?.data?.detail || '搜索用户失败，请稍后重试'
   } finally {
-    searching.value = false
+    if (generation === searchGeneration) searching.value = false
   }
 }
 
 async function handleCreateGroupRoom() {
+  if (creating.value) return
   const name = groupName.value.trim()
   const desc = description.value.trim()
 
@@ -330,6 +348,7 @@ async function handleCreateGroupRoom() {
     }
 
     emit('room-created', roomId)
+    creating.value = false
     handleClose()
   } catch (error) {
     console.error('创建群聊失败:', error)
@@ -384,13 +403,14 @@ async function handleCreateGroupRoom() {
 }
 
 .create-panel {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 4px;
-  left: auto;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 
-  width: min(340px, calc(100% - 8px));
-  max-width: calc(100% - 8px);
+  width: min(520px, calc(100% - 32px));
+  max-width: calc(100% - 32px);
+  max-height: calc(100dvh - 32px);
   box-sizing: border-box;
 
   padding: 16px;
@@ -403,9 +423,12 @@ async function handleCreateGroupRoom() {
     0 20px 60px rgba(0, 0, 0, 0.45),
     0 0 1px rgba(255, 255, 255, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  z-index: 61;
-  overflow: hidden;
+  z-index: 201;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
+
+.creator-backdrop { position: fixed; inset: 0; background: rgba(2, 6, 23, .65); backdrop-filter: blur(4px); z-index: 200; }
 
 .panel-glow {
   position: absolute;
@@ -428,12 +451,12 @@ async function handleCreateGroupRoom() {
 
 .panel-enter-from {
   opacity: 0;
-  transform: translateY(-8px) scale(0.96);
+  transform: translate(-50%, calc(-50% - 8px)) scale(0.96);
 }
 
 .panel-leave-to {
   opacity: 0;
-  transform: translateY(-4px) scale(0.98);
+  transform: translate(-50%, calc(-50% - 4px)) scale(0.98);
 }
 
 .panel-header {
@@ -476,7 +499,7 @@ async function handleCreateGroupRoom() {
 
 .panel-subtitle {
   margin: 0;
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.65);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -487,7 +510,7 @@ async function handleCreateGroupRoom() {
   border: none;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.65);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -537,7 +560,7 @@ async function handleCreateGroupRoom() {
   transition: border-color 0.25s, background 0.25s, box-shadow 0.25s;
 
   &::placeholder {
-    color: rgba(255, 255, 255, 0.22);
+    color: rgba(255, 255, 255, 0.65);
   }
 
   &:focus {
@@ -572,7 +595,7 @@ async function handleCreateGroupRoom() {
 
 .member-count {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.38);
+  color: rgba(255, 255, 255, 0.65);
 }
 
 .selected-list {
@@ -585,7 +608,7 @@ async function handleCreateGroupRoom() {
   padding: 10px 12px;
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.65);
   font-size: 12px;
 }
 
@@ -648,7 +671,7 @@ async function handleCreateGroupRoom() {
   left: 11px;
   top: 50%;
   transform: translateY(-50%);
-  color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.65);
   pointer-events: none;
 }
 
@@ -711,7 +734,7 @@ async function handleCreateGroupRoom() {
 }
 
 .panel-hint {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.65);
 }
 
 .hint-spinner {
@@ -815,7 +838,7 @@ async function handleCreateGroupRoom() {
 
 .result-sub {
   margin: 0;
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.65);
   font-size: 11px;
   word-break: break-word;
 }
@@ -836,6 +859,11 @@ async function handleCreateGroupRoom() {
 }
 
 .panel-footer {
+  position: sticky;
+  bottom: -16px;
+  padding: 14px 0;
+  background: #0c1222;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -845,7 +873,7 @@ async function handleCreateGroupRoom() {
 
 .footer-tip {
   margin: 0;
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.65);
   font-size: 11px;
   line-height: 1.5;
   flex: 1;

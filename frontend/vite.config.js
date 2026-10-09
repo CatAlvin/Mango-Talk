@@ -7,11 +7,10 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     strictPort: true,
-    allowedHosts: ['mango-talk.chenglan.tech'],
-    hmr: {
-      host: 'mango-talk.chenglan.tech',
-      protocol: 'ws',
-      clientPort: 80,
+    proxy: {
+      '^/(auth|users|rooms|messages|uploads|health)(/|$)': { target: 'http://127.0.0.1:8000', changeOrigin: true },
+      '/ws': { target: 'ws://127.0.0.1:8000', ws: true, changeOrigin: true },
     },
   },
+  test: { environment: 'jsdom', include: ['src/**/*.test.js'], restoreMocks: true },
 })

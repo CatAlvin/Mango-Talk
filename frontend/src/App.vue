@@ -1,5 +1,5 @@
 <template>
-  <RouterView />
+  <RouterView :key="$route.path" />
 </template>
 
 <script setup>

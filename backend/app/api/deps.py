@@ -1,70 +1,33 @@
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
-
 from app.core.config import settings
+from app.core.security import token_fingerprint
 from app.db.deps import get_db
-from app.models.user import User
-from app.schemas.token import TokenPayload
+from app.models import User, RevokedToken
 
 security = HTTPBearer(auto_error=False)
 
+
 def get_user_from_token(token: str | None, db: Session) -> User:
-    if not token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="未提供有效的认证令牌",
-        )
-
     try:
-        payload = jwt.decode(
-            token,
-            settings.JWT_SECRET_KEY,
-            algorithms=[settings.JWT_ALGORITHM],
-        )
-        token_data = TokenPayload(**payload)
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="令牌无效或已过期",
-        )
-
-    if not token_data.sub:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="令牌缺少用户标识",
-        )
-
-    try:
-        user_id = int(token_data.sub)
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="令牌中的用户标识无效",
-        )
-
+        if not token:
+            raise ValueError()
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], options={"require_exp": True})
+        if payload.get("typ", "access") != "access" or db.get(RevokedToken, token_fingerprint(token)):
+            raise ValueError()
+        user_id = int(payload["sub"])
+    except (JWTError, ValueError, TypeError, KeyError):
+        raise HTTPException(401, "登录已过期，请重新登录")
     user = db.get(User, user_id)
     if not user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="用户不存在",
-        )
-
+        raise HTTPException(401, "账号不存在，请重新登录")
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="账号已被禁用",
-        )
-
+        raise HTTPException(403, "账号已停用")
     return user
 
-def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    db: Session = Depends(get_db),
-) -> User:
-    token = None
-    if credentials is not None and credentials.scheme.lower() == "bearer":
-        token = credentials.credentials
 
+def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(security), db: Session = Depends(get_db)) -> User:
+    token = credentials.credentials if credentials and credentials.scheme.lower() == "bearer" else None
     return get_user_from_token(token, db)

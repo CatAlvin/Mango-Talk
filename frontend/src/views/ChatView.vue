@@ -10,6 +10,8 @@
     <!-- mobile hamburger -->
     <button
       class="mobile-menu-btn"
+      aria-label="打开会话列表"
+      :aria-expanded="sidebarOpen"
       @click="sidebarOpen = !sidebarOpen"
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
@@ -22,7 +24,7 @@
         </div>
         <div>
           <h2>Mango Talk</h2>
-          <p class="muted">v0.5 附件消息阶段</p>
+          <p class="muted">{{ authStore.demoMode ? '演示空间' : '让交流轻松一点' }}</p>
         </div>
       </div>
 
@@ -32,20 +34,19 @@
         </div>
         <div class="user-meta">
           <p class="username">{{ authStore.user?.username || '未登录用户' }}</p>
-          <p class="role">{{ authStore.user?.role || 'unknown' }}</p>
+          <p class="role">{{ authStore.demoMode ? '欢迎体验 Mango Talk' : roleLabel(authStore.user?.role) }}</p>
         </div>
-        <div class="user-online-dot"></div>
       </div>
 
       <div class="room-section">
         <div class="room-section-header">
-          <h3>我的房间</h3>
+          <h3>会话</h3>
 
           <div class="room-header-actions">
             <GroupRoomCreator @room-created="handleGroupRoomCreated" />
             <PrivateRoomCreator @room-created="handlePrivateRoomCreated" />
 
-            <button class="refresh-btn" @click="handleRefreshRooms" :disabled="roomStore.loading">
+            <button class="refresh-btn" aria-label="刷新会话" @click="handleRefreshRooms" :disabled="roomStore.loading">
               <svg v-if="!roomStore.loading" viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg>
               <span v-else class="spinner-tiny"></span>
             </button>
@@ -57,11 +58,16 @@
           <span>正在加载房间列表...</span>
         </div>
 
-        <div v-else-if="roomStore.rooms.length === 0" class="room-empty">
-          你当前还没有任何房间
+        <div v-else-if="roomStore.error" class="room-empty room-error" role="alert">
+          <span>{{ roomStore.error }}</span>
+          <button type="button" @click="handleRefreshRooms">重新加载</button>
         </div>
 
-        <div v-else class="room-list">
+        <div v-if="!roomStore.loading && !roomStore.error && roomStore.rooms.length === 0" class="room-empty">
+          从上方发起私聊，或创建一个群聊
+        </div>
+
+        <div v-if="roomStore.rooms.length" class="room-list">
           <button
             v-for="room in roomStore.rooms"
             :key="room.id"
@@ -82,17 +88,18 @@
               </div>
 
               <div class="room-bottom">
-                <span>{{ room.member_count }} 人</span>
-                <span class="room-role">{{ room.my_role }}</span>
+                <span class="room-preview">{{ previewText(room.last_message) }}</span>
+                <span v-if="room.unread_count" class="unread-badge">{{ room.unread_count > 99 ? '99+' : room.unread_count }}</span>
               </div>
             </div>
           </button>
         </div>
       </div>
 
+      <button v-if="authStore.demoMode" class="demo-reset-btn" type="button" :disabled="resettingDemo" @click="handleResetDemo">{{ resettingDemo ? '正在重置…' : '重置演示' }}</button>
       <button class="logout-btn" @click="handleLogout">
         <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 001 1h12a1 1 0 001-1V4a1 1 0 00-1-1H3zm7.707 4.293a1 1 0 010 1.414L9.414 10l1.293 1.293a1 1 0 01-1.414 1.414l-2-2a1 1 0 010-1.414l2-2a1 1 0 011.414 0z" clip-rule="evenodd"/><path d="M14 10a1 1 0 01-1 1H9a1 1 0 110-2h4a1 1 0 011 1z"/></svg>
-        退出登录
+        {{ authStore.demoMode ? '退出演示' : '退出登录' }}
       </button>
     </aside>
 
@@ -105,7 +112,7 @@
               <p>
                 {{ roomStore.selectedRoom.type === 'private' ? '私聊' : '群聊' }}
                 · {{ roomStore.selectedRoom.member_count }} 位成员
-                · {{ roomStore.selectedRoom.my_role }}
+                <template v-if="roomStore.selectedRoom.type === 'group'">· {{ roleLabel(roomStore.selectedRoom.my_role) }}</template>
               </p>
             </div>
 
@@ -119,21 +126,26 @@
         <template v-else>
           <div class="empty-header">
             <h2>欢迎回来</h2>
-            <p>请从左侧选择一个房间开始聊天</p>
+            <p>选择一个会话，开始交流</p>
           </div>
         </template>
       </header>
 
       <section class="message-list">
         <template v-if="roomStore.selectedRoom">
-          <div v-if="isCurrentRoomLoading" class="message-empty">
+          <div v-if="isCurrentRoomLoading && !currentMessages.length" class="message-empty">
             <span class="spinner"></span>
             <span>正在加载消息记录...</span>
           </div>
 
+          <div v-else-if="currentRoomError && !currentMessages.length" class="message-empty" role="alert">
+            <span>{{ currentRoomError }}</span>
+            <button class="history-btn" type="button" @click="loadCurrentRoomMessages">重新加载</button>
+          </div>
+
           <div v-else-if="currentMessages.length === 0" class="message-empty">
             <svg viewBox="0 0 48 48" fill="none" width="48" height="48" style="opacity:0.4"><rect x="4" y="8" width="40" height="28" rx="6" stroke="currentColor" stroke-width="2"/><path d="M4 30l8-6 6 4 10-8 16 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/></svg>
-            <span>当前房间还没有消息，发送第一条吧</span>
+            <span>还没有消息，打个招呼吧</span>
           </div>
 
           <div v-else class="message-area">
@@ -142,6 +154,11 @@
               class="message-scroll"
               @scroll="handleMessageScroll"
             >
+              <div class="history-control">
+                <button v-if="messageStore.hasOlder[roomStore.selectedRoomId]" class="history-btn" type="button" :disabled="messageStore.olderLoading[roomStore.selectedRoomId]" @click="handleLoadOlder">{{ messageStore.olderLoading[roomStore.selectedRoomId] ? '正在加载…' : '查看更早消息' }}</button>
+                <span v-else>已显示全部消息</span>
+                <div v-if="currentRoomError" class="history-error" role="alert">{{ currentRoomError }} <button type="button" @click="loadCurrentRoomMessages">重试</button></div>
+              </div>
               <div
                 v-for="message in currentMessages"
                 :key="message.id"
@@ -175,15 +192,16 @@
                       recalled: message.is_recalled
                     }"
                   >
-                    <div
+                    <button
                       v-if="message.reply_to_message_id && !message.is_recalled"
+                      type="button"
                       class="reply-preview"
                       :class="{
                         mine: isMine(message),
                         missing: !getReplyTargetMessage(message),
                         clickable: !!getReplyTargetMessage(message)
                       }"
-                      :title="getReplyTargetMessage(message) ? '点击定位原消息' : '原消息暂未加载，当前无法定位'"
+                      title="查看原消息"
                       @click="handleReplyPreviewClick(message)"
                     >
                       <p class="reply-preview-label">
@@ -192,7 +210,7 @@
                       <p class="reply-preview-content">
                         {{ getReplyPreviewContent(message) }}
                       </p>
-                    </div>
+                    </button>
 
                     <p v-if="message.is_recalled" class="recalled-text">
                       该消息已被撤回
@@ -214,11 +232,15 @@
                           :href="attachment.file_url"
                           target="_blank"
                           rel="noopener noreferrer"
+                          @click.prevent="openAttachment(attachment)"
                         >
                           <img
                             class="image-attachment-preview"
                             :src="attachment.file_url"
                             :alt="attachment.original_name"
+                            loading="lazy"
+                            @error="handleImageError(attachment)"
+                            @load="handleImageLoad"
                           />
                         </a>
                       </div>
@@ -234,6 +256,7 @@
                           :href="attachment.file_url"
                           target="_blank"
                           rel="noopener noreferrer"
+                          @click.prevent="openAttachment(attachment)"
                         >
                           <div class="file-attachment-icon">
                             <svg viewBox="0 0 20 20" fill="currentColor" width="20" height="20"><path fill-rule="evenodd" d="M8 4a3 3 0 00-3 3v4a5 5 0 0010 0V7a1 1 0 112 0v4a7 7 0 11-14 0V7a5 5 0 0110 0v4a3 3 0 11-6 0V7a1 1 0 012 0v4a1 1 0 102 0V7a3 3 0 00-3-3z" clip-rule="evenodd"/></svg>
@@ -312,7 +335,7 @@
               <path d="M20 28c0-5.5 5.4-10 12-10s12 4.5 12 10-5.4 10-12 10c-1.5 0-3-.2-4.4-.6L22 40l1.4-4.3C21.3 33.7 20 31 20 28z" stroke="currentColor" stroke-width="1.8" fill="none" opacity="0.35"/>
             </svg>
           </div>
-          <p class="welcome-text">选择一个房间开始聊天</p>
+          <p class="welcome-text">选择一个会话开始交流</p>
         </div>
       </section>
 
@@ -342,6 +365,8 @@
               v-model="draftMessage"
               class="composer-input"
               :placeholder="composerPlaceholder"
+              aria-label="消息内容"
+              maxlength="10000"
               @keydown="handleComposerKeydown"
             ></textarea>
           </div>
@@ -355,14 +380,14 @@
 
           <div class="composer-actions">
             <div class="composer-feedback">
-              <p v-if="sendError" class="send-error">
+              <p v-if="sendError" class="send-error" role="alert">
                 {{ sendError }}
               </p>
               <p v-else-if="uploading" class="send-pending">
-                正在上传文件，完成后自动发送
+                正在上传 {{ uploadProgress ? `${uploadProgress}%` : '…' }}
               </p>
               <p v-else-if="sending" class="send-pending">
-                等待服务器确认...
+                正在发送…
               </p>
               <p v-else class="send-hint">
                 Enter 发送 · Shift+Enter 换行
@@ -373,13 +398,16 @@
               <button
                 class="upload-btn"
                 type="button"
-                :disabled="wsStatus !== 'connected' || uploading || sending"
+                :disabled="uploading || sending"
                 @click="handlePickFile"
                 title="上传文件或图片"
               >
                 <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18"><path fill-rule="evenodd" d="M8 4a3 3 0 00-3 3v4a5 5 0 0010 0V7a1 1 0 112 0v4a7 7 0 11-14 0V7a5 5 0 0110 0v4a3 3 0 11-6 0V7a1 1 0 012 0v4a1 1 0 102 0V7a3 3 0 00-3-3z" clip-rule="evenodd"/></svg>
                 <span class="upload-label">{{ uploading ? '上传中...' : '文件' }}</span>
               </button>
+
+              <button v-if="failedTask" class="retry-send-btn" type="button" :disabled="sending || uploading" @click="retryFailedMessage">重新发送</button>
+              <button v-if="failedTask" class="discard-send-btn" type="button" :disabled="sending" @click="discardFailedMessage" aria-label="关闭发送重试">×</button>
 
               <button
                 v-if="wsStatus !== 'connected'"
@@ -392,6 +420,8 @@
 
               <button
                 class="send-btn"
+                type="button"
+                aria-label="发送消息"
                 :disabled="!canSend"
                 @click="handleSendMessage"
               >
@@ -407,874 +437,13 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import http from '../lib/http'
-import { useAuthStore } from '../stores/auth'
-import { useRoomStore } from '../stores/room'
-import { useMessageStore } from '../stores/message'
+import { useChat } from '../composables/useChat'
 import PrivateRoomCreator from '../components/PrivateRoomCreator.vue'
 import GroupRoomCreator from '../components/GroupRoomCreator.vue'
-
-const router = useRouter()
-const authStore = useAuthStore()
-const roomStore = useRoomStore()
-const messageStore = useMessageStore()
-
-const messageScrollRef = ref(null)
-const fileInputRef = ref(null)
-
-const draftMessage = ref('')
-const sendError = ref('')
-const sending = ref(false)
-const uploading = ref(false)
-const recallingMessageId = ref(null)
-const replyDraft = ref(null)
-const activeJumpMessageId = ref(null)
-const jumpHighlightTimer = ref(null)
-
-const sidebarOpen = ref(false)
-
-const pendingMessageText = ref('')
-const pendingAttachmentStoredName = ref('')
-const pendingAckTimer = ref(null)
-
-const wsRef = ref(null)
-const wsStatus = ref('idle')
-
-const isNearBottom = ref(true)
-const showScrollToBottom = ref(false)
-const hasUnreadIncoming = ref(false)
-
-const userInitial = computed(() => {
-  const username = authStore.user?.username || 'M'
-  return username.charAt(0).toUpperCase()
-})
-
-const currentMessages = computed(() => {
-  const roomId = roomStore.selectedRoomId
-  if (!roomId) {
-    return []
-  }
-
-  return messageStore.getMessagesByRoom(roomId)
-})
-
-const isCurrentRoomLoading = computed(() => {
-  const roomId = roomStore.selectedRoomId
-  if (!roomId) {
-    return false
-  }
-
-  return messageStore.isRoomLoading(roomId)
-})
-
-const canSend = computed(() => {
-  return (
-    !!roomStore.selectedRoomId &&
-    !!draftMessage.value.trim() &&
-    wsStatus.value === 'connected' &&
-    !sending.value &&
-    !uploading.value
-  )
-})
-
-const composerPlaceholder = computed(() => {
-  if (uploading.value) {
-    return '文件上传中，请稍候...'
-  }
-
-  if (wsStatus.value === 'connected') {
-    return '输入消息...'
-  }
-
-  if (wsStatus.value === 'connecting') {
-    return '实时连接建立中，请稍候...'
-  }
-
-  return '实时连接未就绪，请先重新连接'
-})
-
-const wsStatusText = computed(() => {
-  switch (wsStatus.value) {
-    case 'connecting':
-      return '连接中'
-    case 'connected':
-      return '已连接'
-    case 'error':
-      return '连接异常'
-    case 'closed':
-      return '已断开'
-    default:
-      return '未连接'
-  }
-})
-
-const wsStatusClass = computed(() => wsStatus.value)
-
-function clearPendingAckTimer() {
-  if (pendingAckTimer.value) {
-    clearTimeout(pendingAckTimer.value)
-    pendingAckTimer.value = null
-  }
-}
-
-function resetPendingSendState() {
-  sending.value = false
-  pendingMessageText.value = ''
-  pendingAttachmentStoredName.value = ''
-  clearPendingAckTimer()
-}
-
-function getRoomInitial(room) {
-  const name = room.display_name || 'R'
-  return name.charAt(0).toUpperCase()
-}
-
-function isMine(message) {
-  return message.sender_id === authStore.user?.id
-}
-
-function getSenderLabel(message) {
-  if (isMine(message)) {
-    return '我'
-  }
-
-  if (message.sender_username) {
-    return message.sender_username
-  }
-
-  return `用户 #${message.sender_id}`
-}
-
-function canRecallMessage(message) {
-  return (
-    !!message &&
-    !message.is_recalled &&
-    isMine(message)
-  )
-}
-
-function canReplyMessage(message) {
-  return !!message && !message.is_recalled
-}
-
-function getMessagePreviewText(message) {
-  if (!message) {
-    return '该消息暂无可预览内容'
-  }
-
-  if (message.is_recalled) {
-    return '该消息已被撤回'
-  }
-
-  const content = (message.content || '').trim()
-  const attachments = getMessageAttachments(message)
-  const firstAttachment = attachments[0]
-
-  if (message.message_type === 'image') {
-    if (content && firstAttachment?.original_name) {
-      return `图片 · ${content} · ${firstAttachment.original_name}`
-    }
-
-    if (content) {
-      return `图片 · ${content}`
-    }
-
-    if (firstAttachment?.original_name) {
-      return `图片 · ${firstAttachment.original_name}`
-    }
-
-    return '图片消息'
-  }
-
-  if (message.message_type === 'file') {
-    if (content && firstAttachment?.original_name) {
-      return `文件 · ${content} · ${firstAttachment.original_name}`
-    }
-
-    if (content) {
-      return `文件 · ${content}`
-    }
-
-    if (firstAttachment?.original_name) {
-      return `文件 · ${firstAttachment.original_name}`
-    }
-
-    return '文件消息'
-  }
-
-  if (content) {
-    return content
-  }
-
-  return '该消息暂无可预览内容'
-}
-
-function handleReplyMessage(message) {
-  if (!canReplyMessage(message)) {
-    return
-  }
-
-  replyDraft.value = {
-    messageId: message.id,
-    senderLabel: getSenderLabel(message),
-    previewText: getMessagePreviewText(message),
-  }
-}
-
-function clearReplyDraft() {
-  replyDraft.value = null
-}
-
-function clearJumpHighlightTimer() {
-  if (jumpHighlightTimer.value) {
-    clearTimeout(jumpHighlightTimer.value)
-    jumpHighlightTimer.value = null
-  }
-}
-
-function highlightJumpTarget(messageId) {
-  clearJumpHighlightTimer()
-  activeJumpMessageId.value = messageId
-
-  jumpHighlightTimer.value = setTimeout(() => {
-    if (activeJumpMessageId.value === messageId) {
-      activeJumpMessageId.value = null
-    }
-  }, 1800)
-}
-
-async function jumpToMessage(messageId, behavior = 'smooth') {
-  if (!messageId) {
-    return false
-  }
-
-  await nextTick()
-
-  const container = messageScrollRef.value
-  if (!container) {
-    return false
-  }
-
-  const target = container.querySelector(`[data-message-id="${messageId}"]`)
-  if (!target) {
-    return false
-  }
-
-  target.scrollIntoView({
-    behavior,
-    block: 'center',
-  })
-
-  highlightJumpTarget(messageId)
-  return true
-}
-
-async function handleReplyPreviewClick(message) {
-  const target = getReplyTargetMessage(message)
-
-  if (!target) {
-    return
-  }
-
-  await jumpToMessage(target.id)
-}
-
-function getReplyTargetMessage(message) {
-  if (!message?.reply_to_message_id) {
-    return null
-  }
-
-  return currentMessages.value.find(
-    (item) => item.id === message.reply_to_message_id
-  ) || null
-}
-
-function getReplyPreviewTitle(message) {
-  const target = getReplyTargetMessage(message)
-
-  if (!target) {
-    return `回复消息 #${message.reply_to_message_id}`
-  }
-
-  return `回复 ${getSenderLabel(target)}`
-}
-
-function getReplyPreviewContent(message) {
-  const target = getReplyTargetMessage(message)
-
-  if (!target) {
-    return '原消息暂未加载'
-  }
-
-  if (target.is_recalled) {
-    return '该原消息已被撤回'
-  }
-
-  const content = (target.content || '').trim()
-  const attachments = getMessageAttachments(target)
-  const firstAttachment = attachments[0]
-
-  if (target.message_type === 'image') {
-    if (content && firstAttachment?.original_name) {
-      return `图片 · ${content} · ${firstAttachment.original_name}`
-    }
-
-    if (content) {
-      return `图片 · ${content}`
-    }
-
-    if (firstAttachment?.original_name) {
-      return `图片 · ${firstAttachment.original_name}`
-    }
-
-    return '图片消息'
-  }
-
-  if (target.message_type === 'file') {
-    if (content && firstAttachment?.original_name) {
-      return `文件 · ${content} · ${firstAttachment.original_name}`
-    }
-
-    if (content) {
-      return `文件 · ${content}`
-    }
-
-    if (firstAttachment?.original_name) {
-      return `文件 · ${firstAttachment.original_name}`
-    }
-
-    return '文件消息'
-  }
-
-  if (content) {
-    return content
-  }
-
-  return '该原消息暂无可预览内容'
-}
-
-function formatTime(isoString) {
-  if (!isoString) {
-    return ''
-  }
-
-  const date = new Date(isoString)
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${hours}:${minutes}`
-}
-
-function getMessageAttachments(message) {
-  if (!message || !Array.isArray(message.attachments)) {
-    return []
-  }
-
-  return message.attachments
-}
-
-function getImageAttachments(message) {
-  return getMessageAttachments(message).filter(
-    (attachment) => attachment.attachment_type === 'image'
-  )
-}
-
-function getFileAttachments(message) {
-  return getMessageAttachments(message).filter(
-    (attachment) => attachment.attachment_type === 'file'
-  )
-}
-
-function formatFileSize(size) {
-  const bytes = Number(size) || 0
-
-  if (bytes < 1024) {
-    return `${bytes} B`
-  }
-
-  const kb = bytes / 1024
-  if (kb < 1024) {
-    return `${kb >= 100 ? kb.toFixed(0) : kb.toFixed(1)} KB`
-  }
-
-  const mb = kb / 1024
-  if (mb < 1024) {
-    return `${mb >= 100 ? mb.toFixed(0) : mb.toFixed(1)} MB`
-  }
-
-  const gb = mb / 1024
-  return `${gb >= 100 ? gb.toFixed(0) : gb.toFixed(1)} GB`
-}
-
-function isPendingMessageConfirmed(message) {
-  const expectedContent = pendingMessageText.value
-  const expectedStoredName = pendingAttachmentStoredName.value
-
-  if (!expectedContent && !expectedStoredName) {
-    return false
-  }
-
-  const contentMatched = expectedContent
-    ? (message.content || '') === expectedContent
-    : true
-
-  const attachmentMatched = expectedStoredName
-    ? getMessageAttachments(message).some(
-        (attachment) => attachment.stored_name === expectedStoredName
-      )
-    : true
-
-  return contentMatched && attachmentMatched
-}
-
-function computeIsNearBottom() {
-  const el = messageScrollRef.value
-  if (!el) {
-    return true
-  }
-
-  const threshold = 80
-  return el.scrollHeight - el.scrollTop - el.clientHeight <= threshold
-}
-
-function updateScrollState() {
-  const near = computeIsNearBottom()
-  isNearBottom.value = near
-
-  if (near) {
-    showScrollToBottom.value = false
-    hasUnreadIncoming.value = false
-  } else {
-    showScrollToBottom.value = true
-  }
-}
-
-async function scrollMessagesToBottom(behavior = 'auto') {
-  await nextTick()
-
-  const el = messageScrollRef.value
-  if (!el) {
-    return
-  }
-
-  el.scrollTo({
-    top: el.scrollHeight,
-    behavior,
-  })
-
-  isNearBottom.value = true
-  showScrollToBottom.value = false
-  hasUnreadIncoming.value = false
-}
-
-function handleMessageScroll() {
-  updateScrollState()
-}
-
-function handleScrollToBottom() {
-  scrollMessagesToBottom('smooth')
-}
-
-function resetRoomScrollState() {
-  isNearBottom.value = true
-  showScrollToBottom.value = false
-  hasUnreadIncoming.value = false
-}
-
-function disconnectWebSocket() {
-  if (wsRef.value) {
-    wsRef.value.close()
-    wsRef.value = null
-  }
-}
-
-function connectWebSocket(roomId) {
-  disconnectWebSocket()
-  resetPendingSendState()
-  uploading.value = false
-  sendError.value = ''
-
-  const token = authStore.token
-  if (!roomId || !token) {
-    wsStatus.value = 'idle'
-    return
-  }
-
-  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const wsUrl = `${protocol}://${window.location.host}/ws/rooms/${roomId}?token=${encodeURIComponent(token)}`
-
-  wsStatus.value = 'connecting'
-
-  const ws = new WebSocket(wsUrl)
-  wsRef.value = ws
-
-  ws.onopen = () => {
-    wsStatus.value = 'connected'
-  }
-
-  ws.onmessage = async (event) => {
-    try {
-      const payload = JSON.parse(event.data)
-
-      if (payload.event === 'connected' || payload.event === 'pong') {
-        return
-      }
-
-      if (payload.event === 'error') {
-        resetPendingSendState()
-        uploading.value = false
-        sendError.value = payload?.data?.message || '实时消息发生错误'
-        return
-      }
-
-      if (payload.event === 'message_recalled') {
-        const recalledMessage = payload.data
-
-        messageStore.appendOrUpdateMessage(roomId, {
-          id: recalledMessage.id,
-          room_id: recalledMessage.room_id,
-          sender_id: recalledMessage.sender_id,
-          is_recalled: true,
-          recalled_at: recalledMessage.recalled_at,
-        })
-
-        return
-      }
-
-      if (payload.event === 'new_message') {
-        const message = payload.data
-        const mine = isMine(message)
-        const shouldStickToBottom = isNearBottom.value || mine
-
-        messageStore.appendOrUpdateMessage(roomId, message)
-
-        await nextTick()
-
-        if (shouldStickToBottom) {
-          await scrollMessagesToBottom(mine ? 'smooth' : 'auto')
-        } else {
-          showScrollToBottom.value = true
-          hasUnreadIncoming.value = true
-          updateScrollState()
-        }
-
-        if (mine && isPendingMessageConfirmed(message)) {
-          draftMessage.value = ''
-          sendError.value = ''
-          clearReplyDraft()
-          resetPendingSendState()
-        }
-      }
-    } catch (error) {
-      console.error('解析 WebSocket 消息失败:', error)
-    }
-  }
-
-  ws.onerror = () => {
-    wsStatus.value = 'error'
-  }
-
-  ws.onclose = () => {
-    if (wsRef.value === ws) {
-      wsRef.value = null
-      wsStatus.value = 'closed'
-    }
-  }
-}
-
-async function loadCurrentRoomMessages() {
-  if (!roomStore.selectedRoomId) {
-    return
-  }
-
-  try {
-    await messageStore.fetchRoomMessages(roomStore.selectedRoomId)
-    resetRoomScrollState()
-    await scrollMessagesToBottom('auto')
-  } catch (error) {
-    console.error('获取消息列表失败:', error)
-  }
-}
-
-async function handleRefreshRooms() {
-  try {
-    await roomStore.fetchMyRooms()
-  } catch (error) {
-    console.error('获取房间列表失败:', error)
-  }
-}
-
-async function handlePrivateRoomCreated(roomId) {
-  try {
-    await roomStore.fetchMyRooms()
-    roomStore.selectRoom(roomId)
-    sidebarOpen.value = false
-  } catch (error) {
-    console.error('创建私聊后刷新房间失败:', error)
-  }
-}
-
-async function handleGroupRoomCreated(roomId) {
-  try {
-    await roomStore.fetchMyRooms()
-    roomStore.selectRoom(roomId)
-    sidebarOpen.value = false
-  } catch (error) {
-    console.error('创建群聊后刷新房间失败:', error)
-  }
-}
-
-function handleSelectRoom(roomId) {
-  roomStore.selectRoom(roomId)
-}
-
-function handleLogout() {
-  disconnectWebSocket()
-  resetPendingSendState()
-  uploading.value = false
-  clearReplyDraft()
-  activeJumpMessageId.value = null
-  clearJumpHighlightTimer()
-  authStore.logout()
-  roomStore.clearRooms()
-  messageStore.clearMessages()
-  router.push('/login')
-}
-
-function handleComposerKeydown(event) {
-  if (event.key === 'Enter' && !event.shiftKey) {
-    event.preventDefault()
-    handleSendMessage()
-  }
-}
-
-function handleReconnect() {
-  if (!roomStore.selectedRoomId) {
-    return
-  }
-
-  connectWebSocket(roomStore.selectedRoomId)
-}
-
-function handlePickFile() {
-  if (!roomStore.selectedRoomId) {
-    return
-  }
-
-  if (wsStatus.value !== 'connected') {
-    sendError.value = '实时连接未建立，暂时无法发送附件'
-    return
-  }
-
-  if (uploading.value || sending.value) {
-    return
-  }
-
-  fileInputRef.value?.click()
-}
-
-async function uploadAttachment(file) {
-  const formData = new FormData()
-  formData.append('file', file)
-
-  const response = await http.post('/uploads', formData, {
-    headers: {
-      'Content-Type': 'multipart/form-data',
-    },
-  })
-
-  return response.data.data
-}
-
-async function handleFileChange(event) {
-  const file = event.target.files?.[0]
-
-  if (!file) {
-    return
-  }
-
-  try {
-    await handleUploadAndSendAttachment(file)
-  } finally {
-    event.target.value = ''
-  }
-}
-
-async function handleUploadAndSendAttachment(file) {
-  const ws = wsRef.value
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    sendError.value = '实时连接未建立，暂时无法发送附件'
-    return
-  }
-
-  uploading.value = true
-  sendError.value = ''
-
-  try {
-    const attachment = await uploadAttachment(file)
-    const currentContent = draftMessage.value.trim()
-    const currentReplyToMessageId = replyDraft.value?.messageId ?? null
-    const messageType = attachment.attachment_type === 'image' ? 'image' : 'file'
-
-    const currentWs = wsRef.value
-    if (!currentWs || currentWs.readyState !== WebSocket.OPEN) {
-      sendError.value = '文件已上传成功，但实时连接已断开，请重连后重试'
-      return
-    }
-
-    sending.value = true
-    pendingMessageText.value = currentContent
-    pendingAttachmentStoredName.value = attachment.stored_name
-    clearPendingAckTimer()
-
-    currentWs.send(
-      JSON.stringify({
-        action: 'send_message',
-        data: {
-          message_type: messageType,
-          content: currentContent,
-          reply_to_message_id: currentReplyToMessageId,
-          attachments: [attachment],
-        },
-      })
-    )
-
-    pendingAckTimer.value = setTimeout(() => {
-      if (
-        sending.value &&
-        pendingAttachmentStoredName.value === attachment.stored_name
-      ) {
-        sending.value = false
-        pendingAttachmentStoredName.value = ''
-        sendError.value = '暂未收到服务器确认，文件已上传，但消息发送未确认，请检查连接后重试'
-      }
-    }, 5000)
-  } catch (error) {
-    console.error('上传附件失败:', error)
-    resetPendingSendState()
-    sendError.value =
-      error?.response?.data?.detail || '文件上传失败，请稍后重试'
-  } finally {
-    uploading.value = false
-  }
-}
-
-async function handleSendMessage() {
-  const content = draftMessage.value.trim()
-
-  if (!content) {
-    return
-  }
-
-  const ws = wsRef.value
-  if (!ws || ws.readyState !== WebSocket.OPEN) {
-    sendError.value = '实时连接未建立，暂时无法发送消息'
-    return
-  }
-
-  try {
-    const currentReplyToMessageId = replyDraft.value?.messageId ?? null
-
-    sending.value = true
-    sendError.value = ''
-    pendingMessageText.value = content
-    pendingAttachmentStoredName.value = ''
-    clearPendingAckTimer()
-
-    ws.send(
-      JSON.stringify({
-        action: 'send_message',
-        data: {
-          message_type: 'text',
-          content,
-          reply_to_message_id: currentReplyToMessageId,
-          attachments: [],
-        },
-      })
-    )
-
-    pendingAckTimer.value = setTimeout(() => {
-      if (sending.value && pendingMessageText.value === content) {
-        sending.value = false
-        sendError.value = '暂未收到服务器确认，输入内容已保留，请检查连接后重试'
-      }
-    }, 5000)
-  } catch (error) {
-    console.error('发送 WebSocket 消息失败:', error)
-    resetPendingSendState()
-    sendError.value = '发送失败，请稍后重试'
-  }
-}
-
-async function handleRecallMessage(message) {
-  if (!message || !canRecallMessage(message)) {
-    return
-  }
-
-  if (recallingMessageId.value) {
-    return
-  }
-
-  try {
-    recallingMessageId.value = message.id
-    sendError.value = ''
-
-    await http.post(`/messages/${message.id}/recall`)
-  } catch (error) {
-    console.error('撤回消息失败:', error)
-    sendError.value =
-      error?.response?.data?.detail || '撤回失败，请稍后重试'
-  } finally {
-    recallingMessageId.value = null
-  }
-}
-
-watch(
-  () => roomStore.selectedRoomId,
-  async (newRoomId, oldRoomId) => {
-    if (!newRoomId) {
-      disconnectWebSocket()
-      return
-    }
-
-    if (newRoomId === oldRoomId) {
-      return
-    }
-
-    resetPendingSendState()
-    uploading.value = false
-    sendError.value = ''
-    draftMessage.value = ''
-    clearReplyDraft()
-    activeJumpMessageId.value = null
-    clearJumpHighlightTimer()
-    resetRoomScrollState()
-
-    await loadCurrentRoomMessages()
-    connectWebSocket(newRoomId)
-  }
-)
-
-onMounted(async () => {
-  try {
-    await roomStore.fetchMyRooms()
-    await loadCurrentRoomMessages()
-    connectWebSocket(roomStore.selectedRoomId)
-  } catch (error) {
-    console.error('初始化聊天页失败:', error)
-  }
-})
-
-onBeforeUnmount(() => {
-  disconnectWebSocket()
-  resetPendingSendState()
-  clearJumpHighlightTimer()
-})
+const { authStore, roomStore, messageStore, messageScrollRef, fileInputRef, sidebarOpen, recallingMessageId, activeJumpMessageId, currentMessages, isCurrentRoomLoading, currentRoomError, userInitial, wsStatus, wsStatusText, wsStatusClass, composerPlaceholder, showScrollToBottom, hasUnreadIncoming, resettingDemo, draftMessage, replyDraft, sendError, sending, uploading, uploadProgress, failedTask, canSend, clearReplyDraft, handleSendMessage, retryFailedMessage, discardFailedMessage, roleLabel, previewText, getRoomInitial, isMine, getSenderLabel, canReplyMessage, canRecallMessage, getReplyTargetMessage, getReplyPreviewTitle, getReplyPreviewContent, getMessageAttachments, getImageAttachments, getFileAttachments, handleReplyMessage, handleReplyPreviewClick, handleMessageScroll, handleScrollToBottom, handleLoadOlder, loadCurrentRoomMessages, handleRefreshRooms, handlePrivateRoomCreated, handleGroupRoomCreated, handleSelectRoom, handleLogout, handleComposerKeydown, handleReconnect, handlePickFile, handleFileChange, handleRecallMessage, handleResetDemo, handleImageError, handleImageLoad, openAttachment, formatTime, formatFileSize } = useChat()
 </script>
 
 <style scoped lang="scss">
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700&family=Outfit:wght@600;700;800&display=swap');
 
 /* ========== TOKENS ========== */
 .chat-page {
@@ -1289,7 +458,7 @@ onBeforeUnmount(() => {
   --c-sidebar-bg: #0c1222;
   --c-sidebar-surface: rgba(255,255,255,0.05);
   --c-sidebar-text: rgba(255,255,255,0.7);
-  --c-sidebar-text-dim: rgba(255,255,255,0.35);
+  --c-sidebar-text-dim: rgba(255,255,255,0.6);
   --c-main-bg: #f0f4f8;
   --c-surface: #ffffff;
   --c-text: #0f172a;
@@ -1301,8 +470,8 @@ onBeforeUnmount(() => {
   --radius-sm: 10px;
 
   display: flex;
-  height: 100vh;
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   background: var(--c-main-bg);
   overflow: hidden;
   font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
@@ -2077,7 +1246,7 @@ onBeforeUnmount(() => {
 
 .image-attachment-link {
   display: block;
-  width: fit-content;
+  width: 260px;
   max-width: min(260px, 100%);
   border-radius: 12px;
   overflow: hidden;
@@ -2087,8 +1256,9 @@ onBeforeUnmount(() => {
   display: block;
   width: 100%;
   max-width: 260px;
+  aspect-ratio: 16 / 10;
   max-height: 300px;
-  object-fit: cover;
+  object-fit: contain;
   border-radius: 12px;
   border: 1px solid rgba(226,232,240,0.8);
   background: var(--c-main-bg);
@@ -2563,4 +1733,23 @@ onBeforeUnmount(() => {
     justify-content: center;
   }
 }
+</style>
+
+<style scoped>
+.room-preview { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.unread-badge { padding: 2px 6px; border-radius: 20px; min-width: 20px; text-align: center; background: #f97316; color: #fff; font-size: 11px; flex-shrink: 0; }
+.demo-reset-btn { border: 1px solid rgba(255,255,255,.16); color: #dce6f5; background: transparent; padding: 10px; border-radius: 10px; cursor: pointer; margin: 10px 0 4px; }
+.room-error { flex-direction: column; align-items: flex-start; color: #fecaca; }
+.room-error button { border: 0; background: transparent; color: #fb923c; padding: 4px 0; cursor: pointer; }
+.history-control { color: #64748b; font-size: 12px; text-align: center; padding: 0 0 20px; }
+.history-btn { border: 1px solid #cbd5e1; background: white; color: #475569; padding: 8px 16px; border-radius: 20px; cursor: pointer; }
+.history-error { color: #b91c1c; padding-top: 8px; }
+.history-error button { border: 0; background: transparent; color: #b91c1c; text-decoration: underline; cursor: pointer; }
+.reply-preview { display: block; width: 100%; border-top: 0; border-right: 0; border-bottom: 0; text-align: left; font-family: inherit; color: inherit; cursor: pointer; }
+.retry-send-btn, .discard-send-btn { border: 0; border-radius: 8px; background: #fff7ed; color: #c2410c; cursor: pointer; padding: 8px 10px; font-size: 12px; white-space: nowrap; }
+.discard-send-btn { background: transparent; font-size: 18px; padding: 4px; }
+.chat-main { min-height: 0; }
+.message-composer { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+@media (max-width: 768px) { .composer-feedback { min-width: 0; } .send-hint { display: none; } .sidebar { padding-top: max(20px, env(safe-area-inset-top)); padding-bottom: max(16px, env(safe-area-inset-bottom)); } }
+@media (max-height: 600px) { .user-card { margin-bottom: 12px; padding: 10px; } .brand-block { margin-bottom: 14px; } .message-composer { padding-top: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); } .composer-input { min-height: 48px; height: 48px; } }
 </style>

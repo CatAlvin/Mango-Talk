@@ -6,6 +6,7 @@
       :disabled="creatingUserId !== null"
       @click="handleToggle"
       title="新建私聊"
+      aria-label="新建私聊"
       :class="{ active: open }"
     >
       <svg
@@ -24,8 +25,10 @@
       </svg>
     </button>
 
+    <Teleport to="body">
+    <div v-if="open" class="creator-backdrop" @click="handleClose"></div>
     <Transition name="panel">
-      <div v-if="open" class="create-panel">
+      <div v-if="open" ref="panelRef" class="create-panel" role="dialog" aria-modal="true" aria-labelledby="private-dialog-title">
         <div class="panel-glow"></div>
 
         <div class="panel-header">
@@ -36,12 +39,11 @@
                   <path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z"/>
                 </svg>
               </div>
-              <p class="panel-title">新建私聊</p>
+              <p id="private-dialog-title" class="panel-title">新建私聊</p>
             </div>
-            <p class="panel-subtitle">搜索用户名或手机号，点击即可发起私聊</p>
           </div>
 
-          <button class="panel-close" type="button" @click="handleClose">
+          <button class="panel-close" type="button" aria-label="关闭新建私聊" @click="handleClose">
             <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
               <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/>
             </svg>
@@ -57,7 +59,8 @@
               v-model.trim="keyword"
               class="search-input"
               type="text"
-              placeholder="例如：alice 或 18800002222"
+              aria-label="搜索用户"
+              placeholder="输入用户名或手机号"
               @keydown.enter.prevent="handleSearch"
             />
           </div>
@@ -73,7 +76,7 @@
           </button>
         </div>
 
-        <div v-if="errorMessage" class="panel-message panel-error">
+        <div v-if="errorMessage" class="panel-message panel-error" role="alert">
           <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14">
             <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
           </svg>
@@ -138,22 +141,26 @@
         </TransitionGroup>
       </div>
     </Transition>
+    </Teleport>
   </div>
 </template>
 
 <script setup>
 import { computed, ref } from 'vue'
-import http from '../lib/http'
+import http from '../lib/api'
+import { useDialog } from '../composables/useDialog'
 
 const emit = defineEmits(['room-created'])
 
 const open = ref(false)
+const { panelRef } = useDialog(open, handleClose)
 const keyword = ref('')
 const results = ref([])
 const searching = ref(false)
 const searched = ref(false)
 const creatingUserId = ref(null)
 const errorMessage = ref('')
+let searchGeneration = 0
 
 const panelHintText = computed(() => {
   if (searching.value) {
@@ -172,6 +179,7 @@ function getUserInitial(username) {
 }
 
 function resetPanelState() {
+  searchGeneration++
   keyword.value = ''
   results.value = []
   searching.value = false
@@ -189,11 +197,15 @@ function handleToggle() {
 }
 
 function handleClose() {
+  if (creatingUserId.value !== null) return
   open.value = false
   resetPanelState()
 }
 
 async function handleSearch() {
+  if (searching.value || creatingUserId.value !== null) return
+  if (!keyword.value.trim()) { errorMessage.value = '请输入用户名或手机号'; return }
+  const generation = ++searchGeneration
   errorMessage.value = ''
   searching.value = true
   searched.value = false
@@ -206,18 +218,21 @@ async function handleSearch() {
       },
     })
 
+    if (generation !== searchGeneration || !open.value) return
     results.value = response.data
     searched.value = true
   } catch (error) {
+    if (generation !== searchGeneration || !open.value) return
     console.error('搜索用户失败:', error)
     errorMessage.value =
       error?.response?.data?.detail || '搜索用户失败，请稍后重试'
   } finally {
-    searching.value = false
+    if (generation === searchGeneration) searching.value = false
   }
 }
 
 async function handleCreatePrivateRoom(user) {
+  if (creatingUserId.value !== null) return
   if (!user?.id) {
     return
   }
@@ -236,6 +251,7 @@ async function handleCreatePrivateRoom(user) {
     }
 
     emit('room-created', roomId)
+    creatingUserId.value = null
     handleClose()
   } catch (error) {
     console.error('创建私聊失败:', error)
@@ -293,13 +309,14 @@ async function handleCreatePrivateRoom(user) {
 
 /* ========== Panel ========== */
 .create-panel {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 4px;
-  left: auto;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 
-  width: min(290px, calc(100% - 8px));
-  max-width: calc(100% - 8px);
+  width: min(480px, calc(100% - 32px));
+  max-width: calc(100% - 32px);
+  max-height: calc(100dvh - 32px);
   box-sizing: border-box;
 
   padding: 16px;
@@ -312,9 +329,12 @@ async function handleCreatePrivateRoom(user) {
     0 20px 60px rgba(0, 0, 0, 0.45),
     0 0 1px rgba(255, 255, 255, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  z-index: 60;
-  overflow: hidden;
+  z-index: 200;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
+
+.creator-backdrop { position: fixed; inset: 0; background: rgba(2, 6, 23, .65); backdrop-filter: blur(4px); z-index: 201; }
 
 .panel-glow {
   position: absolute;
@@ -338,12 +358,12 @@ async function handleCreatePrivateRoom(user) {
 
 .panel-enter-from {
   opacity: 0;
-  transform: translateY(-8px) scale(0.96);
+  transform: translate(-50%, calc(-50% - 8px)) scale(0.96);
 }
 
 .panel-leave-to {
   opacity: 0;
-  transform: translateY(-4px) scale(0.98);
+  transform: translate(-50%, calc(-50% - 4px)) scale(0.98);
 }
 
 /* ========== Panel Header ========== */
@@ -388,7 +408,7 @@ async function handleCreatePrivateRoom(user) {
 
 .panel-subtitle {
   margin: 0;
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.65);
   font-size: 11px;
   line-height: 1.5;
 }
@@ -399,7 +419,7 @@ async function handleCreatePrivateRoom(user) {
   border: none;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.65);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -431,7 +451,7 @@ async function handleCreatePrivateRoom(user) {
   left: 11px;
   top: 50%;
   transform: translateY(-50%);
-  color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.65);
   pointer-events: none;
   transition: color 0.25s;
 }
@@ -455,7 +475,7 @@ async function handleCreatePrivateRoom(user) {
   box-sizing: border-box;
 
   &::placeholder {
-    color: rgba(255, 255, 255, 0.22);
+    color: rgba(255, 255, 255, 0.65);
   }
 
   &:focus {
@@ -519,7 +539,7 @@ async function handleCreatePrivateRoom(user) {
 }
 
 .panel-hint {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(255, 255, 255, 0.65);
 }
 
 .hint-spinner {
@@ -630,7 +650,7 @@ async function handleCreatePrivateRoom(user) {
 
 .result-sub {
   margin: 0;
-  color: rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.65);
   font-size: 11px;
   word-break: break-word;
 }

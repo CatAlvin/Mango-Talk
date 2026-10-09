@@ -29,12 +29,14 @@ def search_users(
         User.id != current_user.id,
     ]
 
+    if not keyword:
+        return []
     if keyword:
-        like_keyword = f"%{keyword}%"
+        like_keyword = "%" + keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
         conditions.append(
             or_(
-                User.username.like(like_keyword),
-                User.phone.like(like_keyword),
+                User.username.like(like_keyword, escape="\\"),
+                User.phone == keyword,
             )
         )
 
@@ -45,4 +47,4 @@ def search_users(
         .limit(limit)
     ).scalars().all()
 
-    return users
+    return [{"id": user.id, "username": user.username, "avatar_url": user.avatar_url, "phone": (user.phone[:3] + "****" + user.phone[-4:]) if user.phone and len(user.phone) >= 7 else None} for user in users]

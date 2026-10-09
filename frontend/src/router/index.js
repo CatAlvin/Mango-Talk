@@ -17,6 +17,12 @@ const router = createRouter({
       component: LoginView,
     },
     {
+      path: '/demo',
+      name: 'demo',
+      component: ChatView,
+      meta: { demo: true },
+    },
+    {
       path: '/chat',
       name: 'chat',
       component: ChatView,
@@ -30,6 +36,11 @@ const router = createRouter({
 router.beforeEach(async (to) => {
   const authStore = useAuthStore()
 
+  if (to.meta.demo) {
+    if (!authStore.demoMode) authStore.enterDemo()
+    return
+  }
+
   if (!authStore.initialized) {
     await authStore.initializeAuth()
   }
@@ -38,8 +49,10 @@ router.beforeEach(async (to) => {
     return '/login'
   }
 
+  if (to.path === '/chat' && authStore.demoMode) return '/demo'
+
   if (to.path === '/login' && authStore.isLoggedIn) {
-    return '/chat'
+    return authStore.demoMode ? '/demo' : '/chat'
   }
 })
 

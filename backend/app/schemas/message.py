@@ -1,26 +1,19 @@
 from datetime import datetime
+from typing import Literal
 from pydantic import BaseModel, Field, ConfigDict
 
 
 class MessageAttachmentCreate(BaseModel):
-    attachment_type: str = Field(min_length=1, max_length=20)
-    original_name: str = Field(min_length=1, max_length=255)
-    stored_name: str = Field(min_length=1, max_length=255)
-    storage_path: str = Field(min_length=1, max_length=500)
-    file_url: str = Field(min_length=1, max_length=500)
-    mime_type: str | None = Field(default=None, max_length=100)
-    file_size: int = Field(gt=0)
+    model_config = ConfigDict(extra="forbid")
+    upload_id: str = Field(min_length=32, max_length=32, pattern=r"^[a-f0-9]{32}$")
 
 
 class MessageAttachmentPublic(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
     id: int
     message_id: int
+    upload_id: str | None
     attachment_type: str
     original_name: str
-    stored_name: str
-    storage_path: str
     file_url: str
     mime_type: str | None
     file_size: int
@@ -39,30 +32,27 @@ class MessageReplyPreview(BaseModel):
 
 
 class MessageCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     room_id: int = Field(gt=0)
-    message_type: str = Field(default="text", max_length=20)
-    content: str | None = None
+    client_message_id: str | None = Field(default=None, min_length=1, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
+    message_type: Literal["text", "image", "file", "mixed"] = "text"
+    content: str | None = Field(default=None, max_length=10000)
     reply_to_message_id: int | None = Field(default=None, gt=0)
-    attachments: list[MessageAttachmentCreate] = Field(default_factory=list)
+    attachments: list[MessageAttachmentCreate] = Field(default_factory=list, max_length=10)
 
 
-class MessagePublic(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
+class MessagePublic(MessageReplyPreview):
     room_id: int
-    sender_id: int
-    sender_username: str | None = None
-    message_type: str
-    content: str | None
+    client_message_id: str | None = None
     reply_to_message_id: int | None
     replied_message: MessageReplyPreview | None = None
-    is_recalled: bool
     recalled_at: datetime | None
-    created_at: datetime
-    attachments: list[MessageAttachmentPublic] = Field(default_factory=list)
 
 
 class MessageActionResponse(BaseModel):
     message: str
     data: MessagePublic
+
+
+class MessageSync(BaseModel):
+    ids: list[int] = Field(min_length=1, max_length=200)

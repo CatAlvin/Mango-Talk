@@ -1,0 +1,8 @@
+{
+  "ime_enter_triggers_send": 1,
+  "send_while_already_sending_and_uploading": 2,
+  "upload_started_in_room_a_sent_to": {
+    "room_a": 0,
+    "room_b": 1
+  }
+}

@@ -10,6 +10,7 @@ class ChatRoomMember(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    last_read_message_id: Mapped[int] = mapped_column(default=0, server_default=text("0"), nullable=False)
 
     room_id: Mapped[int] = mapped_column(ForeignKey("chat_rooms.id"), nullable=False, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)

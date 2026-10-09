@@ -1,11 +1,16 @@
 from datetime import datetime
-from sqlalchemy import String, Text, Boolean, DateTime, ForeignKey, func, text
+from sqlalchemy import String, Text, Boolean, DateTime, ForeignKey, func, text, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.session import Base
 
 
 class Message(Base):
     __tablename__ = "messages"
+    __table_args__ = (
+        UniqueConstraint("room_id", "sender_id", "client_message_id", name="uq_message_client"),
+        Index("ix_messages_room_cursor", "room_id", "id"),
+    )
+    client_message_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 

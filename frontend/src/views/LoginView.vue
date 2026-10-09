@@ -22,20 +22,22 @@
           </svg>
         </div>
         <h1>Mango Talk</h1>
-        <p class="brand-sub">标准聊天室 · 登录入口</p>
+        <p class="brand-sub">让每一次交流，更轻松</p>
       </div>
 
-      <form class="login-form" @submit.prevent="handleLogin">
+      <form class="login-form" @submit.prevent="handleSubmit">
         <div class="form-item">
-          <label for="identifier">用户名或手机号</label>
+          <label for="identifier">{{ registering ? '用户名' : '用户名或手机号' }}</label>
           <div class="input-wrap">
             <svg class="input-icon" viewBox="0 0 20 20" fill="currentColor"><path d="M10 10a4 4 0 100-8 4 4 0 000 8zm-7 8a7 7 0 0114 0H3z"/></svg>
             <input
               id="identifier"
               v-model.trim="form.identifier"
               type="text"
-              placeholder="请输入用户名或手机号"
+              :placeholder="registering ? '3–32 个字符，不含空格' : '请输入用户名或手机号'"
               autocomplete="username"
+              maxlength="32"
+              required
             />
           </div>
         </div>
@@ -48,25 +50,36 @@
               id="password"
               v-model="form.password"
               type="password"
-              placeholder="请输入密码"
-              autocomplete="current-password"
+              :placeholder="registering ? '设置密码，至少 6 个字符' : '请输入密码'"
+              :autocomplete="registering ? 'new-password' : 'current-password'"
+              maxlength="128"
+              required
             />
           </div>
         </div>
 
-        <p v-if="errorMessage" class="error-text">
+        <div v-if="registering" class="form-item">
+          <label for="confirm-password">确认密码</label>
+          <div class="input-wrap">
+            <input id="confirm-password" v-model="form.confirmPassword" class="plain-input" type="password" placeholder="再次输入密码" autocomplete="new-password" maxlength="128" required />
+          </div>
+        </div>
+
+        <p v-if="errorMessage" class="error-text" role="alert">
           {{ errorMessage }}
         </p>
 
-        <button class="submit-btn" type="submit" :disabled="authStore.loading">
-          <span class="btn-text">{{ authStore.loading ? '登录中...' : '登录' }}</span>
+        <button class="submit-btn" type="submit" :disabled="authStore.loading || submitting">
+          <span class="btn-text">{{ submitting || authStore.loading ? '请稍候…' : (registering ? '创建账号' : '登录') }}</span>
           <svg v-if="!authStore.loading" class="btn-arrow" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
         </button>
       </form>
 
+      <p class="account-switch">{{ registering ? '已有账号？' : '第一次来？' }} <button type="button" :disabled="submitting || authStore.loading" @click="toggleRegister">{{ registering ? '登录' : '创建账号' }}</button></p>
+
       <div class="footer-tip">
-        <p>当前阶段先打通登录主链路</p>
-        <p>下一步再接 /users/me 与房间列表</p>
+        <button class="demo-entry" type="button" :disabled="submitting || authStore.loading" @click="handleDemo">进入演示空间 <span aria-hidden="true">↗</span></button>
+        <p>从一段对话开始，认识 Mango Talk</p>
       </div>
     </div>
   </div>
@@ -76,6 +89,10 @@
 import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useRoomStore } from '../stores/room'
+import { useMessageStore } from '../stores/message'
+import http from '../lib/http'
+import { errorText } from '../lib/api'
 
 const router = useRouter()
 const authStore = useAuthStore()
@@ -83,9 +100,35 @@ const authStore = useAuthStore()
 const form = reactive({
   identifier: '',
   password: '',
+  confirmPassword: '',
 })
 
 const errorMessage = ref('')
+const registering = ref(false)
+const submitting = ref(false)
+
+function toggleRegister() { registering.value = !registering.value; errorMessage.value = ''; form.password = ''; form.confirmPassword = '' }
+function handleDemo() {
+  authStore.enterDemo()
+  router.push('/demo')
+}
+
+async function handleSubmit() {
+  if (submitting.value || authStore.loading) return
+  if (!registering.value) return handleLogin()
+  errorMessage.value = ''
+  if (form.identifier.length < 3 || /\s/.test(form.identifier)) { errorMessage.value = '用户名至少需要 3 个字符，不能包含空格'; return }
+  if (form.password.length < 6) { errorMessage.value = '密码至少需要 6 个字符'; return }
+  if (form.password !== form.confirmPassword) { errorMessage.value = '两次输入的密码不一致'; return }
+  submitting.value = true
+  try {
+    await http.post('/auth/register', { username: form.identifier, password: form.password })
+    await authStore.login(form.identifier, form.password)
+    useRoomStore().clearRooms(); useMessageStore().clearMessages()
+    router.push('/chat')
+  } catch (error) { errorMessage.value = errorText(error, '创建账号失败，请稍后重试') }
+  finally { submitting.value = false }
+}
 
 async function handleLogin() {
   errorMessage.value = ''
@@ -102,16 +145,16 @@ async function handleLogin() {
 
   try {
     await authStore.login(form.identifier, form.password)
+    useRoomStore().clearRooms(); useMessageStore().clearMessages()
     router.push('/chat')
   } catch (error) {
     errorMessage.value =
-      error?.response?.data?.detail || '登录失败，请检查后端服务或输入信息'
+      errorText(error, '登录失败，请稍后重试')
   }
 }
 </script>
 
 <style scoped lang="scss">
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,700&family=Outfit:wght@600;700;800&display=swap');
 
 .login-page {
   --c-orange: #f97316;
@@ -125,7 +168,7 @@ async function handleLogin() {
   --c-slate-100: #f1f5f9;
   --c-danger: #ef4444;
 
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -245,7 +288,7 @@ async function handleLogin() {
 .brand-sub {
   margin: 0;
   font-size: 14px;
-  color: rgba(255, 255, 255, 0.45);
+  color: rgba(255, 255, 255, 0.75);
   letter-spacing: 0.04em;
 }
 
@@ -264,7 +307,7 @@ async function handleLogin() {
   label {
     font-size: 13px;
     font-weight: 500;
-    color: rgba(255, 255, 255, 0.55);
+    color: rgba(255, 255, 255, 0.8);
     letter-spacing: 0.03em;
     text-transform: uppercase;
   }
@@ -300,7 +343,7 @@ async function handleLogin() {
     box-sizing: border-box;
 
     &::placeholder {
-      color: rgba(255, 255, 255, 0.25);
+      color: rgba(255, 255, 255, 0.55);
     }
 
     &:focus {
@@ -387,7 +430,7 @@ async function handleLogin() {
   p {
     margin: 4px 0;
     font-size: 12px;
-    color: rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.65);
     letter-spacing: 0.02em;
   }
 }
@@ -426,4 +469,15 @@ async function handleLogin() {
     margin-top: 18px;
   }
 }
+</style>
+
+<style scoped>
+.account-switch { text-align: center; color: #cbd5e1; font-size: 13px; margin: 22px 0 0; }
+.account-switch button { border: 0; background: transparent; color: #fdba74; cursor: pointer; padding: 5px; }
+.demo-entry { color: #fff; border: 1px solid rgba(255,255,255,.25); width: 100%; border-radius: 12px; padding: 12px; background: rgba(255,255,255,.06); cursor: pointer; margin-bottom: 10px; }
+.demo-entry:hover { background: rgba(255,255,255,.12); border-color: #22d3ee; }
+.plain-input { padding-left: 16px !important; }
+.brand h1 { background: none; color: #fff; -webkit-text-fill-color: #fff; }
+.bg-orb { animation: none; opacity: .2; }
+.login-page { overflow: clip; }
 </style>

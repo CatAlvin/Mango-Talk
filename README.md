@@ -1,168 +1,77 @@
 # Mango Talk
 
-Mango Talk is a standard real-time chat web application designed for small teams and campus/community communication.  
-The project focuses on clean architecture, practical deployment on Ubuntu, good UI potential, and future extensibility.
+一个用于团队日常沟通的实时聊天应用。支持私聊、群聊、图片与文件、消息回复和撤回，提供可直接体验的演示空间。
 
-## Project Positioning
+[打开 Mango Talk](https://mango-talk.chenglan.tech) · [体验演示](https://mango-talk.chenglan.tech/demo) · [发布与恢复](docs/deployment.md)
 
-This is **not** a simple demo and **not** a full Discord/Slack clone.  
-It is positioned as a **standard chat system** with a clear engineering structure and real deployment value.
+## 体验
 
-Target capabilities:
-- User registration and login
-- JWT-based authentication
-- One-to-one chat
-- Group chat
-- Persistent message storage
-- Real-time WebSocket messaging
-- Image and file upload
-- Admin moderation features
-- Ubuntu server deployment with Nginx
+在登录页选择「进入演示空间」，无需注册即可体验聊天、回复、附件和创建会话。演示数据保存在当前浏览器，刷新后继续使用，也可以随时重置。真实账号的聊天使用独立的服务端数据。
 
-## Tech Stack
+注册账号后可以搜索用户，开始私聊或邀请成员创建群聊。消息通过 HTTP 确认发送，WebSocket 同步新消息、撤回和会话变化；断线重连后按消息游标补齐记录。
 
-### Frontend
-- Vue 3
-- Vite
-- Vue Router
-- Pinia
-- Axios
-- SCSS
-- Element Plus（selected use only）
+## 功能与实现
 
-### Backend
-- Python 3.10
-- FastAPI
-- Uvicorn
-- SQLAlchemy
-- PyMySQL
-- python-dotenv
-- passlib + bcrypt
-- python-jose
-- WebSocket
+| 功能 | 实现 |
+| --- | --- |
+| 账号 | 注册、用户名或手机号登录、退出时撤销令牌；scrypt 密码散列，旧 bcrypt 登录后升级 |
+| 会话 | 私聊唯一约束、群聊、最近消息摘要、未读数和已读游标 |
+| 消息 | 历史分页、引用预览、定位原消息、撤回；按发送编号去重，失败可重试 |
+| 附件 | 服务端记录所有权，发送时校验；下载验证会话权限，短期签名链接，撤回后失效 |
+| 交互 | 手机与桌面布局、中文输入法支持、可滚动弹窗、加载和错误反馈 |
+| 演示 | 共用正式聊天界面，通过独立本地数据服务运行，支持刷新保存、重置和退出 |
+| 发布 | 提交对应独立构建与虚拟环境，部署前回归、数据库备份、迁移、健康验证和应用恢复 |
 
-### Database / Storage
-- MySQL 8
-- Local file storage on Ubuntu server
+## 技术
 
-### Deployment
-- Ubuntu 22.04
-- Nginx
-- systemd
-- GitHub for version control
+前端使用 Vue 3、Pinia、Vue Router、Vite 和 Axios。后端使用 FastAPI、SQLAlchemy 和 MySQL；图片校验使用 Pillow。Nginx 提供 HTTPS 与静态构建，systemd 管理 Uvicorn。
 
-## Current Progress
-
-### v0.6
-Mango Talk has entered the stage of **room creation completion and full reply interaction polish**.
-
-Completed backend / frontend capabilities:
-- frontend private room creation entry completed
-- frontend group room creation entry completed
-- `/users/search` added for user lookup in room creation workflow
-- frontend can now search users and directly create or enter existing private rooms
-- frontend can now create group rooms with group name, optional description, and member selection
-- room list refresh + auto-enter after room creation completed
-- reply preview UI upgraded from simple `reply_to_message_id` hint to readable preview block
-- reply action entry added on message cards
-- composer now supports “replying to message” state
-- text message sending now carries `reply_to_message_id`
-- attachment message sending now also carries `reply_to_message_id`
-- desktop message action buttons are now hover-revealed for cleaner UI
-- mobile message action buttons remain visible for usability
-- reply preview is clickable and can jump to the original message
-- jumped target message now gets temporary highlight feedback
-- backend message schema now returns `sender_username`
-- backend message schema now returns `replied_message` preview payload
-- `/messages/room/{room_id}` now returns reply preview summary for reply messages
-- WebSocket `new_message` payload now also returns reply preview summary
-- frontend reply preview now prefers backend `replied_message` instead of relying only on currently loaded messages
-
-Verified workflows:
-- search users from frontend and create private room successfully
-- create group room from frontend and auto-enter the new room successfully
-- reply to an existing message from frontend composer successfully
-- send text reply message with correct reply relation successfully
-- send attachment reply message with correct reply relation successfully
-- click reply preview and jump back to the original message successfully
-- original message highlight feedback works after jump
-- reply preview remains readable even when the original message is not currently in the latest loaded list, as long as backend returns `replied_message`
-
-Current status:
-- Mango Talk already supports **text chat + attachment chat + real-time recall sync + frontend room creation + usable reply workflow**
-- the project has moved beyond a plain real-time chat prototype and is now much closer to a complete standard chat product
-
-## Project Structure
+WebSocket 连接由单个 API 进程管理，生产服务固定为一个 worker。数据库调用在工作线程执行，消息和引用批量加载。扩展到多个实例时需要接入共享消息分发。
 
 ```text
-mango-talk/
-├── backend/
-├── frontend/
-├── uploads/
-├── logs/
-├── backups/
-├── scripts/
-└── docs/
+backend/app/       API、权限、消息服务和数据库迁移
+backend/tests/     独立 SQLite 回归测试
+frontend/src/      界面、状态管理、网络与演示数据服务
+frontend/public/  演示资源
+deploy/           服务器发布、快照和恢复
+scripts/          本机发布入口
+docs/             审查证据、开发记录和运维说明
 ```
 
-## Run Backend Locally on Server
+## 本地运行
+
+需要 Python 3.10+、Node 22.22.2 或 24.15+ 和 MySQL 8。后端也支持通过 `DATABASE_URL` 使用 SQLite 进行本地体验。
 
 ```bash
-cd /home/projects/mango-talk/backend
+cd backend
+python -m venv .venv
+# Windows: .venv\Scripts\activate
 source .venv/bin/activate
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+python -m pip install -r requirements-dev.txt
+cp .env.example .env
+# 编辑数据库连接与 JWT_SECRET_KEY
+python -m app.db.migrate
+uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
-## Run Frontend Locally on Server
-
 ```bash
-cd /home/projects/mango-talk/frontend
+cd frontend
+npm ci
 npm run dev
 ```
 
-## Roadmap
+开发前端通过 Vite 代理连接 `127.0.0.1:8000`。演示空间可以独立于后端运行。生产环境使用强随机密钥、明确的 CORS 来源和共享附件目录；配置见 [环境示例](backend/.env.example) 与 [部署说明](docs/deployment.md)。
 
-### v0.6 — Room Creation and Reply Workflow Polish
-Completed:
-- frontend private room creation entry
-- frontend group room creation entry
-- user search endpoint for room creation
-- reply preview rendering upgrade
-- frontend reply action entry
-- composer reply state
-- clickable reply preview jump-to-origin interaction
-- reply preview backend summary payload
-- cleaner desktop message action interaction
-- better mobile action visibility
+## 验证与发布
 
-### v0.7 — Profile System and Product Polish
-Planned:
-- room avatar support
-- user avatar upload / display support
-- user profile edit page
-- personal information update
-- password change
-- avatar upload for user profile
-- richer room header presentation
-- better mobile interaction polish for room creation and message actions
-- overall UI polish for profile-related interaction
+```bash
+cd backend
+python -m pytest -q
+cd ../frontend
+npm test
+npm run build
+```
 
-### v0.8 — Deployment and Production Hardening
-Planned:
-- replace Vite dev serving with production frontend build
-- Nginx serve frontend static files directly
-- stable reverse proxy for backend REST API and WebSocket
-- systemd service for backend
-- HTTPS with Certbot
-- environment cleanup and production configuration
-- logging improvements
-- production validation
+测试使用临时数据库和附件目录，不读取真实聊天记录。CI 检查后端权限、历史分页、幂等发送、撤回、WebSocket 与前端演示数据、消息状态和构建。
 
-## Notes
-
-- Secrets must never be committed.
-- `backend/.env` is local-only.
-- Current project version is `v0.6`.
-- Current public development domain is `mango-talk.chenglan.tech`.
-- Existing blog deployment on `chenglan.tech` remains isolated from Mango Talk deployment.
-- Current Mango Talk prototype already supports login, room list, message list, room-based real-time chat, attachment messages, real-time recall sync, frontend room creation, and full basic reply interaction.
+发布前提交并推送至 `main`，在 PowerShell 运行 `./scripts/deploy.ps1`。脚本会再次构建、测试、备份和核对线上提交；详情见 [发布与恢复](docs/deployment.md)。密钥、数据库快照和用户附件不进入仓库。

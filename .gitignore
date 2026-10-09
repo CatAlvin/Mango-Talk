@@ -24,9 +24,11 @@ __pycache__/
 backend/.venv/
 backend/.env
 backend/.env.*
+!backend/.env.example
 backend/.pytest_cache/
 backend/__pycache__/
 backend/*.log
+backend/tests/.runtime-*/
 
 # ----------------------
 # Node / Frontend
@@ -35,6 +37,7 @@ frontend/node_modules/
 frontend/dist/
 frontend/.env
 frontend/.env.*
+!frontend/.env.example
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -62,3 +65,8 @@ backups/*
 # Other
 # ----------------------
 docs/*.docx
+.deploy/
+codesort/code/
+docs/audit/**/uploads/
+docs/audit/**/*.sqlite
+docs/audit/**/*.db

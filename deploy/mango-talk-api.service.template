@@ -1,0 +1,25 @@
+[Unit]
+Description=Mango Talk API
+After=network.target mysql.service
+Requires=mysql.service
+
+[Service]
+Type=simple
+User=mango-talk
+Group=mango-talk
+WorkingDirectory=@PROJECT@/.deploy/current/backend
+EnvironmentFile=@PROJECT@/backend/.env
+ExecStart=/usr/bin/env APP_ENV=production CORS_ORIGINS=https://mango-talk.chenglan.tech UPLOAD_ROOT=@PROJECT@/uploads PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 @PROJECT@/.deploy/current/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1 --no-access-log --log-level warning
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=30
+KillSignal=SIGTERM
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=@PROJECT@/uploads @PROJECT@/logs
+
+[Install]
+WantedBy=multi-user.target

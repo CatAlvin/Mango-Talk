@@ -1,367 +1,85 @@
-import os
-from datetime import datetime
-
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from datetime import datetime, timezone
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
-
+from starlette.concurrency import run_in_threadpool
 from app.api.deps import get_current_user
-from app.core.config import settings
 from app.db.deps import get_db
-from app.models.chat_room import ChatRoom
-from app.models.chat_room_member import ChatRoomMember
-from app.models.message import Message
-from app.models.message_attachment import MessageAttachment
-from app.models.user import User
-from app.schemas.message import (
-    MessageAttachmentCreate,
-    MessageActionResponse,
-    MessageCreate,
-    MessagePublic,
-)
+from app.models import User, Message, ChatRoomMember
+from app.schemas.message import MessageCreate, MessagePublic, MessageActionResponse, MessageSync
+from app.services.messages import membership, create_message, load_message, serialize_many
 from app.services.ws_manager import manager
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
 
-def get_room_member(db: Session, room_id: int, user_id: int) -> ChatRoomMember | None:
-    return db.execute(
-        select(ChatRoomMember).where(
-            ChatRoomMember.room_id == room_id,
-            ChatRoomMember.user_id == user_id,
-        )
-    ).scalar_one_or_none()
+async def publish_message(data: dict, member_ids: list[int], event="new_message"):
+    encoded = jsonable_encoder(data)
+    await manager.broadcast(data["room_id"], {"event": event, "data": encoded})
+    await manager.notify_users(member_ids, {"event": "room_updated", "data": {"room_id": data["room_id"], "message": encoded}})
 
 
-def load_message_with_attachments(db: Session, message_id: int) -> Message | None:
-    return db.execute(
-        select(Message)
-        .options(selectinload(Message.attachments))
-        .where(Message.id == message_id)
-    ).scalar_one_or_none()
-
-
-def serialize_attachment(attachment: MessageAttachment) -> dict:
-    return {
-        "id": attachment.id,
-        "message_id": attachment.message_id,
-        "attachment_type": attachment.attachment_type,
-        "original_name": attachment.original_name,
-        "stored_name": attachment.stored_name,
-        "storage_path": attachment.storage_path,
-        "file_url": attachment.file_url,
-        "mime_type": attachment.mime_type,
-        "file_size": attachment.file_size,
-        "created_at": attachment.created_at,
-    }
-
-
-def build_reply_preview(db: Session, message: Message) -> dict | None:
-    if not message.reply_to_message_id:
-        return None
-
-    reply_target = load_message_with_attachments(db, message.reply_to_message_id)
-    if not reply_target:
-        return None
-
-    if reply_target.room_id != message.room_id:
-        return None
-
-    reply_sender = db.get(User, reply_target.sender_id)
-
-    return {
-        "id": reply_target.id,
-        "sender_id": reply_target.sender_id,
-        "sender_username": reply_sender.username if reply_sender else None,
-        "message_type": reply_target.message_type,
-        "content": reply_target.content,
-        "is_recalled": reply_target.is_recalled,
-        "created_at": reply_target.created_at,
-        "attachments": [serialize_attachment(item) for item in reply_target.attachments],
-    }
-
-
-def serialize_message_public(db: Session, message: Message) -> dict:
-    sender = db.get(User, message.sender_id)
-
-    return {
-        "id": message.id,
-        "room_id": message.room_id,
-        "sender_id": message.sender_id,
-        "sender_username": sender.username if sender else None,
-        "message_type": message.message_type,
-        "content": message.content,
-        "reply_to_message_id": message.reply_to_message_id,
-        "replied_message": build_reply_preview(db, message),
-        "is_recalled": message.is_recalled,
-        "recalled_at": message.recalled_at,
-        "created_at": message.created_at,
-        "attachments": [serialize_attachment(item) for item in message.attachments],
-    }
-
-
-def validate_attachment_payload(attachment: MessageAttachmentCreate) -> None:
-    if attachment.attachment_type not in {"image", "file"}:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="附件类型不合法",
-        )
-
-    upload_root = os.path.abspath(settings.UPLOAD_ROOT)
-    storage_path = os.path.abspath(attachment.storage_path)
-
-    if storage_path != upload_root and not storage_path.startswith(upload_root + os.sep):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="附件路径非法",
-        )
-
-    if not os.path.exists(storage_path):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"附件文件不存在：{attachment.original_name}",
-        )
-
-    actual_stored_name = os.path.basename(storage_path)
-    if actual_stored_name != attachment.stored_name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"附件存储名不匹配：{attachment.original_name}",
-        )
-
-    actual_size = os.path.getsize(storage_path)
-    if actual_size != attachment.file_size:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"附件大小不匹配：{attachment.original_name}",
-        )
-
-    if not attachment.file_url.startswith(f"{settings.UPLOAD_URL_PREFIX}/"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"附件访问路径非法：{attachment.original_name}",
-        )
-
-    if not attachment.file_url.endswith(attachment.stored_name):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"附件访问路径与存储名不匹配：{attachment.original_name}",
-        )
-
-
-@router.post("", response_model=MessageActionResponse, status_code=status.HTTP_201_CREATED)
-def create_message(
-    payload: MessageCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    room = db.get(ChatRoom, payload.room_id)
-    if not room or not room.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="房间不存在或不可用",
-        )
-
-    membership = get_room_member(db, payload.room_id, current_user.id)
-    if not membership:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="你不在该房间内",
-        )
-
-    if membership.is_muted:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="你已被禁言，无法发送消息",
-        )
-
-    if payload.message_type not in {"text", "image", "file"}:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="当前阶段仅支持 text / image / file 消息",
-        )
-
-    content = (payload.content or "").strip()
-    attachments = payload.attachments or []
-
-    if payload.message_type == "text" and not content:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="文本消息内容不能为空",
-        )
-
-    if payload.message_type in {"image", "file"} and not attachments:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="附件消息必须至少带一个附件",
-        )
-
-    if payload.message_type == "image":
-        if any(item.attachment_type != "image" for item in attachments):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="image 消息只能携带图片附件",
-            )
-
-    if payload.message_type == "file":
-        if any(item.attachment_type != "file" for item in attachments):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="file 消息只能携带普通文件附件",
-            )
-
-    reply_to_message_id = payload.reply_to_message_id
-    if reply_to_message_id is not None:
-        reply_target = db.get(Message, reply_to_message_id)
-        if not reply_target:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="被回复的消息不存在",
-            )
-        if reply_target.room_id != payload.room_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="不能回复其他房间的消息",
-            )
-
-    for attachment in attachments:
-        validate_attachment_payload(attachment)
-
-    msg = Message(
-        room_id=payload.room_id,
-        sender_id=current_user.id,
-        message_type=payload.message_type,
-        content=content or None,
-        reply_to_message_id=reply_to_message_id,
-        is_recalled=False,
-    )
-    db.add(msg)
-    db.flush()
-
-    for attachment in attachments:
-        db.add(
-            MessageAttachment(
-                message_id=msg.id,
-                attachment_type=attachment.attachment_type,
-                original_name=attachment.original_name,
-                stored_name=attachment.stored_name,
-                storage_path=attachment.storage_path,
-                file_url=attachment.file_url,
-                mime_type=attachment.mime_type,
-                file_size=attachment.file_size,
-            )
-        )
-
-    db.commit()
-
-    message_with_attachments = load_message_with_attachments(db, msg.id)
-    if not message_with_attachments:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="消息创建成功，但读取结果失败",
-        )
-
-    return {
-        "message": "message sent",
-        "data": serialize_message_public(db, message_with_attachments),
-    }
+@router.post("", response_model=MessageActionResponse, status_code=201)
+async def send_message(payload: MessageCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    data, created, member_ids = await run_in_threadpool(create_message, db, payload, current_user.id)
+    if created:
+        await publish_message(data, member_ids)
+    return {"message": "消息已发送", "data": data}
 
 
 @router.get("/room/{room_id}", response_model=list[MessagePublic])
-def list_room_messages(
-    room_id: int,
-    limit: int = Query(default=50, ge=1, le=200),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    room = db.get(ChatRoom, room_id)
-    if not room or not room.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="房间不存在或不可用",
-        )
+def history(room_id: int, before_id: int | None = Query(default=None, gt=0), after_id: int | None = Query(default=None, gt=0), limit: int = Query(default=50, ge=1, le=100), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    membership(db, room_id, current_user.id)
+    if before_id and after_id:
+        raise HTTPException(400, "请使用一个分页方向")
+    query = select(Message).where(Message.room_id == room_id).options(selectinload(Message.attachments))
+    if after_id:
+        query = query.where(Message.id > after_id).order_by(Message.id.asc())
+    else:
+        if before_id:
+            query = query.where(Message.id < before_id)
+        query = query.order_by(Message.id.desc())
+    messages = list(db.scalars(query.limit(limit)))
+    if not after_id:
+        messages.reverse()
+    return serialize_many(db, messages, current_user.id)
 
-    membership = get_room_member(db, room_id, current_user.id)
-    if not membership:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="你不在该房间内",
-        )
 
-    messages = db.execute(
-        select(Message)
-        .options(selectinload(Message.attachments))
-        .where(Message.room_id == room_id)
-        .order_by(Message.created_at.asc(), Message.id.asc())
-        .limit(limit)
-    ).scalars().all()
+@router.get("/{message_id}/context", response_model=list[MessagePublic])
+def context(message_id: int, limit: int = Query(default=50, ge=3, le=100), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    target = load_message(db, message_id)
+    membership(db, target.room_id, current_user.id)
+    query = select(Message).where(Message.room_id == target.room_id).options(selectinload(Message.attachments))
+    before = list(db.scalars(query.where(Message.id < message_id).order_by(Message.id.desc()).limit(limit // 2)))
+    after = list(db.scalars(query.where(Message.id >= message_id).order_by(Message.id.asc()).limit(limit - len(before))))
+    return serialize_many(db, list(reversed(before)) + after, current_user.id)
 
-    return [serialize_message_public(db, message) for message in messages]
+
+@router.post("/room/{room_id}/sync", response_model=list[MessagePublic])
+def sync_loaded(room_id: int, payload: MessageSync, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    membership(db, room_id, current_user.id)
+    messages = list(db.scalars(select(Message).where(Message.room_id == room_id, Message.id.in_(payload.ids)).options(selectinload(Message.attachments)).order_by(Message.id)))
+    return serialize_many(db, messages, current_user.id)
+
+
+def recall_message(db, message_id, user_id):
+    message = load_message(db, message_id)
+    membership(db, message.room_id, user_id)
+    if message.sender_id != user_id:
+        raise HTTPException(403, "只能撤回自己发送的消息")
+    changed = not message.is_recalled
+    if changed:
+        message.is_recalled = True
+        message.recalled_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        db.commit()
+    members = list(db.scalars(select(ChatRoomMember.user_id).where(ChatRoomMember.room_id == message.room_id)))
+    return serialize_many(db, [message], user_id)[0], changed, members
 
 
 @router.post("/{message_id}/recall", response_model=MessageActionResponse)
-async def recall_message(
-    message_id: int,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    msg = db.execute(
-        select(Message)
-        .options(selectinload(Message.attachments))
-        .where(Message.id == message_id)
-    ).scalar_one_or_none()
-
-    if not msg:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="消息不存在",
-        )
-
-    membership = get_room_member(db, msg.room_id, current_user.id)
-    if not membership:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="你不在该房间内",
-        )
-
-    if msg.sender_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="只能撤回自己发送的消息",
-        )
-
-    if msg.is_recalled:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="该消息已经撤回",
-        )
-
-    msg.is_recalled = True
-    msg.recalled_at = datetime.now()
-    db.commit()
-
-    refreshed = load_message_with_attachments(db, msg.id)
-    if not refreshed:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="消息撤回成功，但读取结果失败",
-        )
-
-    await manager.broadcast(
-        refreshed.room_id,
-        {
-            "event": "message_recalled",
-            "data": {
-                "id": refreshed.id,
-                "room_id": refreshed.room_id,
-                "sender_id": refreshed.sender_id,
-                "is_recalled": True,
-                "recalled_at": refreshed.recalled_at.isoformat() if refreshed.recalled_at else None,
-            },
-        },
-    )
-
-    return {
-        "message": "message recalled",
-        "data": serialize_message_public(db, refreshed),
-    }
+async def recall(message_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    data, changed, members = await run_in_threadpool(recall_message, db, message_id, current_user.id)
+    if changed:
+        await publish_message(data, members, "message_recalled")
+    return {"message": "消息已撤回", "data": data}

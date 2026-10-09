@@ -1,7 +1,7 @@
 from pathlib import Path
 
 
-PROJECT_ROOT = Path("/home/projects/mango-talk").resolve()
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT_ROOT = (PROJECT_ROOT / "codesort" / "code").resolve()
 
 BACKEND_SOURCE_ROOT = (PROJECT_ROOT / "backend" / "app").resolve()
@@ -10,7 +10,7 @@ FRONTEND_SOURCE_ROOT = (PROJECT_ROOT / "frontend").resolve()
 BACKEND_OUTPUT_FILE = OUTPUT_ROOT / "mango-talk.backend.txt"
 FRONTEND_OUTPUT_FILE = OUTPUT_ROOT / "mango-talk.frontend.txt"
 
-FRONTEND_EXCLUDED_DIRS = {"node_modules", ".vscode"}
+FRONTEND_EXCLUDED_DIRS = {"node_modules", ".vscode", "dist"}
 
 
 def build_project_relative_path(file_path: Path) -> str:

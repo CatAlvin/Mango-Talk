@@ -9,6 +9,7 @@ class MessageAttachment(Base):
     __tablename__ = "message_attachments"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    upload_id: Mapped[str | None] = mapped_column(ForeignKey("uploads.id"), nullable=True, unique=True)
 
     message_id: Mapped[int] = mapped_column(
         ForeignKey("messages.id", ondelete="CASCADE"),

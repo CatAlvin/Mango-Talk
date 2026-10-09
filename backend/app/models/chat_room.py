@@ -7,6 +7,7 @@ class ChatRoom(Base):
     __tablename__ = "chat_rooms"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    private_key: Mapped[str | None] = mapped_column(String(50), nullable=True, unique=True)
 
     type: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
     name: Mapped[str | None] = mapped_column(String(100), nullable=True)
