@@ -34,6 +34,7 @@ GitHub Actions runs regression suites, public-content checks, and the frontend b
 - Latest history and an early reply in a 126-message fixture, with continuous history after loading.
 - Demo send, reply, recall, persistence after refresh, and reset.
 - **1280 × 720** desktop and **390 × 640** mobile layouts: dialog scrolling, visible actions, focus, and horizontal overflow.
+- Private-conversation dialogs in demo and authenticated sessions: background blur stays behind the dialog; user search, opening an existing conversation, close controls, and Escape work. Authenticated checks use isolated accounts. Group-dialog stacking was also checked.
 - Direct navigation and refresh at `/demo` and `/demo/`, including demo resources.
 
 The screenshots use the fictional workspace.

@@ -329,12 +329,12 @@ async function handleCreatePrivateRoom(user) {
     0 20px 60px rgba(0, 0, 0, 0.45),
     0 0 1px rgba(255, 255, 255, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  z-index: 200;
+  z-index: 201;
   overflow-y: auto;
   overflow-x: hidden;
 }
 
-.creator-backdrop { position: fixed; inset: 0; background: rgba(2, 6, 23, .65); backdrop-filter: blur(4px); z-index: 201; }
+.creator-backdrop { position: fixed; inset: 0; background: rgba(2, 6, 23, .65); backdrop-filter: blur(4px); z-index: 200; }
 
 .panel-glow {
   position: absolute;
